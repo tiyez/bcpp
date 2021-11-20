@@ -8,8 +8,8 @@ char	*read_entire_file (const char *filename, usize *size);
 
 #endif /* Header_fileutil */
 
-#if (defined(Implementation_tokenizer) || defined(Implementation_All)) && !defined(Except_Implementation_tokenizer) && !defined(Implemented_tokenizer)
-#define Implemented_tokenizer
+#if (defined(Implementation_fileutil) || defined(Implementation_All)) && !defined(Except_Implementation_fileutil) && !defined(Implemented_fileutil)
+#define Implemented_fileutil
 
 #define Implementation_memutil
 #include "memutil.h"
@@ -74,4 +74,4 @@ char	*read_entire_file (const char *filename, usize *psize) {
 
 #undef Open_File_Mode
 
-#endif /* (defined(Implementation_tokenizer) || defined(Implementation_All)) && !defined(Except_Implementation_tokenizer) && !defined(Implemented_tokenizer) */
+#endif /* (defined(Implementation_fileutil) || defined(Implementation_All)) && !defined(Except_Implementation_fileutil) && !defined(Implemented_fileutil) */

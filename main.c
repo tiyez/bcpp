@@ -8,15 +8,30 @@
 
 #include "def.h"
 
-#define Implementation_All
 #include "memutil.h"
 #define Option_fileutil_Open_Binary
 #include "fileutil.h"
+#include "systemutil.h"
 
 #include "text_preprocessor.c"
 #include "tokenizer.c"
 // #include "decl.c"
 #include "preproc.c"
+
+#define Implementation_All
+#include "memutil.h"
+#define Option_fileutil_Open_Binary
+#include "fileutil.h"
+#include "systemutil.h"
+
+
+
+
+
+
+
+
+
 
 
 

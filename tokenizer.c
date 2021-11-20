@@ -28,6 +28,7 @@ struct position {
 	const char	*filename;
 	int			line;
 	int			column;
+	int			at_the_beginning;
 };
 
 int		is_string_token (int token) {
@@ -48,6 +49,10 @@ const char	*get_token_name (const char *token) {
 		case Token_link: return "Token_link";
 	}
 	return "<invalid token>";
+}
+
+int		is_token (const char *token, int tkn, const char *string) {
+	return (token[-1] == tkn && 0 == strcmp (token, string));
 }
 
 void	push_tokenizer_byte (struct tokenizer *tokenizer, int byte) {
@@ -179,8 +184,10 @@ const char	*next_const_token (const char *tokens, struct position *pos) {
 		if (tokens[-1] == Token_newline) {
 			pos->line += tokens[0];
 			pos->column = 1;
+			pos->at_the_beginning = 1;
 		} else {
 			pos->column += strlen (tokens);
+			pos->at_the_beginning = 0;
 		}
 	}
 	while (*tokens) {
