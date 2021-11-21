@@ -240,7 +240,7 @@ int		is_function_like_macro_call (const char *macro) {
 	return (macro[-1] == Token_punctuator && 0 == strcmp (macro, "("));
 }
 
-#define Iterate_Macro(macro) ((macro)->ident || (((macro) = (macro) + 1)->ident && ((macro) = (struct macro_desc *) (macro)->ident + 1)))
+#define Iterate_Macro(macro) ((macro)->ident || (((macro) = (macro) + 1)->ident && ((macro) = (struct macro_desc *) (macro)->ident + 1)->ident))
 
 struct macro_desc	*find_macro (struct macro_desc *macros, const char *identifier) {
 	struct macro_desc	*macro;
@@ -482,7 +482,7 @@ int		define_macro (struct bcpp *bcpp, const char **ptokens, struct position *pos
 
 		desc = bcpp->macros_data + bcpp->macros_size;
 		bcpp->macros_size += 1;
-		memset (desc, 0, sizeof *desc * 2);
+		memset (desc, 0, sizeof *desc * 3);
 		tokenizer = &bcpp->macro_tokenizer;
 		if (tokens[-1] == Token_identifier) {
 			success = copy_token (tokenizer, tokens);

@@ -154,9 +154,12 @@ int		execute_program (const char *program_path, int read_from_fd, const char *in
 									memory = expand_array (array, &size);
 									if (memory) {
 										array = memory;
+										array[readed] = 0;
 									} else {
 										success = 0;
 									}
+								} else {
+									array[readed] = 0;
 								}
 							}
 							if (just_readed < 0) {

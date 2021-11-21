@@ -4,3 +4,5 @@ bcpp
 test*.txt
 .obj
 .dep
+a.out
+bcpp.dSYM

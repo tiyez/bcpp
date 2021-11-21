@@ -68,7 +68,7 @@ void	push_tokenizer_bytes (struct tokenizer *tokenizer, void *bytes, usize lengt
 int		prepare_tokenizer (struct tokenizer *tokenizer, usize tofit) {
 	int		success;
 
-	if (tokenizer->size + tofit + (2 + 1 + sizeof (void *)) > tokenizer->cap) {
+	if (tokenizer->size + tofit + (2 + 1 + sizeof (void *) * 2) > tokenizer->cap) {
 		void	*memory;
 
 		memory = expand_array (0, &tokenizer->cap);
@@ -540,6 +540,12 @@ void	free_tokenizer (struct tokenizer *tokenizer) {
 	memset (tokenizer, 0, sizeof *tokenizer);
 }
 
+void	reset_tokenizer (struct tokenizer *tokenizer) {
+	if (tokenizer->data) {
+		tokenizer->size = sizeof (void *);
+	}
+}
+
 char	*tokenize (const char *content, int *nl_array, const char *filename) {
 	struct tokenizer	ctokenizer = {0}, *tokenizer = &ctokenizer;
 	int					success = 1;
@@ -792,7 +798,7 @@ void	print_tokens (const char *tokens, int with_lines, const char *line_prefix, 
 #ifndef Without_Tests
 void	test_tokenize_stage (void) {
 	usize	size;
-	const char	*filename = "test.c";
+	const char	*filename = "preproc.c";
 	char	*content = read_entire_file (filename, &size);
 	char	*tokens;
 	int		*newline_array;
@@ -824,7 +830,7 @@ int		copy_token (struct tokenizer *tokenizer, const char *token) {
 			int		remaining = (token[0] + tokenizer->current[0]) - 0x7f;
 
 			tokenizer->current[0] = 0x7f;
-			if ((success = prepare_tokenizer (tokenizer, length + 4))) {
+			if ((success = prepare_tokenizer (tokenizer, 5))) {
 				push_tokenizer_byte (tokenizer, 0);
 				push_tokenizer_byte (tokenizer, 0);
 				push_tokenizer_byte (tokenizer, token[-1]);
