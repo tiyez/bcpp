@@ -92,7 +92,12 @@ int main (int args_count, char *args[], char *env[]) {
 	// test_tokenize_stage ();
 	init_bcpp (bcpp, args_count, args, env);
 	// test_bcpp (bcpp, "/Users/jsandsla/Projects/bcpp/test.c");
-	test_bcpp (bcpp, "main.c");
+	// test_bcpp (bcpp, "test.c");
+	if (args_count > 1) {
+		test_bcpp (bcpp, args[1]);
+	} else {
+		test_bcpp (bcpp, "main.c");
+	}
 
 	// macro_desc_stress_test (bcpp);
 	// tokenizer_stess_test ();

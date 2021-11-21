@@ -1,35 +1,7 @@
 
 
-#if defined(__LP64__)
-#define __PTHREAD_SIZE__		8176
-#define __PTHREAD_ATTR_SIZE__		56
-#define __PTHREAD_MUTEXATTR_SIZE__	8
-#define __PTHREAD_MUTEX_SIZE__		56
-#define __PTHREAD_CONDATTR_SIZE__	8
-#define __PTHREAD_COND_SIZE__		40
-#define __PTHREAD_ONCE_SIZE__		8
-#define __PTHREAD_RWLOCK_SIZE__		192
-#define __PTHREAD_RWLOCKATTR_SIZE__	16
-#else // !__LP64__
-#define __PTHREAD_SIZE__		4088
-#define __PTHREAD_ATTR_SIZE__		36
-#define __PTHREAD_MUTEXATTR_SIZE__	8
-#define __PTHREAD_MUTEX_SIZE__		40
-#define __PTHREAD_CONDATTR_SIZE__	4
-#define __PTHREAD_COND_SIZE__		24
-#define __PTHREAD_ONCE_SIZE__		4
-#define __PTHREAD_RWLOCK_SIZE__		124
-#define __PTHREAD_RWLOCKATTR_SIZE__	12
-#endif // !__LP64__
 
+#define HHH(a) a
 
-__INT16_C_SUFFIX__
-__INT16_FMTd__
-__INT16_FMTi__
-__PTHREAD_ATTR_SIZE__
-
-
-
-
-
+HHH(HHH(b))
 
