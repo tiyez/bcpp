@@ -6,6 +6,10 @@
 
 #define println(...) do { printf (__VA_ARGS__); printf ("\n"); } while (0)
 
+// #define No_Error_Messages
+// #define No_Debug_Messages
+// #define No_Debug_Code
+
 #if defined(No_Error_Messages) || defined(No_Messages)
 #	define Error(...)
 #else
@@ -24,6 +28,12 @@ do {fprintf (stderr, "Debug:%s:%d: ", __func__, __LINE__);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
 } while (0)
+#endif
+
+#if defined No_Debug_Code || defined No_Debug
+#	define Debug_Code(...)
+#else
+#	define Debug_Code(...) __VA_ARGS__
 #endif
 
 #define System_Error_Message(pos, ...) \

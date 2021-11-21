@@ -12,5 +12,7 @@ function run_test () {
 	fi
 }
 
-run_test t1.c
+for i in $(ls t*.c); do
+	run_test "$i"
+done
 
