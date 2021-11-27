@@ -54,6 +54,8 @@ do {fprintf (stderr, "%s:%d:%d: error: ", filename, line, column);\
 	fprintf (stderr, "\n");\
 } while (0)
 
+#include <assert.h>
+#define Assert(expr) assert (expr)
 
 #define Member_Offset(type, memb) (&(((type *)0)->memb))
 #define Array_Count(arr) (sizeof (arr) / sizeof ((arr)[0]))

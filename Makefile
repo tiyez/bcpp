@@ -18,7 +18,7 @@ OBJ=$(addprefix $(OBJDIR)/,$(OBJ3))
 WARNINGS_ = -Wno-macro-redefined -Wno-sizeof-array-argument -Wno-unknown-warning-option -Wno-sizeof-pointer-div -Wno-unneeded-internal-declaration -Wno-unused-parameter -Wno-unused-variable -Wno-unused-private-field -Wno-comment -Wno-trigraphs
 INCLUDES_ = 
 
-CFLAGS += -Wall -Wextra -Werror $(WARNINGS_) $(INCLUDES_) -g -trigraphs -O2
+CFLAGS += -Wall -Wextra -Werror $(WARNINGS_) $(INCLUDES_) -g -trigraphs
 CPPFLAGS += -Wall -Wextra -Werror $(WARNINGS_) $(INCLUDES_) -std=c++11 -g
 MFLAGS += -g
 

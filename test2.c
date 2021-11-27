@@ -1,8 +1,8 @@
 
 
 
-int main () {
-	return (0);
-}
+#define A a
+A bb
+
 
 

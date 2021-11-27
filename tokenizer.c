@@ -638,7 +638,7 @@ int		unescape_string_token (const char *token, char *out, usize cap, usize *size
 	return (result);
 }
 
-int		concatenate_token (struct tokenizer *tokenizer, const char *token, struct position *pos) {
+int		concatenate_token (struct tokenizer *tokenizer, const char *token, const struct position *pos) {
 	int		success;
 
 	if (tokenizer->current && tokenizer->current[-1] && tokenizer->current[-1] != Token_newline && token[-1] && token[-1] != Token_newline) {
