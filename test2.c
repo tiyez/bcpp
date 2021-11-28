@@ -1,7 +1,7 @@
 
 
 
-#define Token_List ##
+#define Token_List /
 (eof)
 (newline)
 (identifier)
@@ -15,15 +15,16 @@
 #end
 
 
-#define BODY ## 111
+#define BODY(arg) / 111
 Hello
-#	calleach Token_List ##
+#	calleach Token_List /
 	(name) Token (name),
+	(name,...) Token (name), __VA_ARGS__
 #	end
-#if 1
+#if 0
 World
 #else
-WORLD
+WORLD##arg
 #endif
 #end 111
 
@@ -39,7 +40,7 @@ WORLD
 
 
 
-	#calleach Token_List ##
+	#calleach Token_List /
 		(name) Token (name),
 		(name, value) Token (name) = value,
 	#end
@@ -47,9 +48,20 @@ WORLD
 
 
 
-BODY
+BODY(yeah)
+
+#define Shader_Source /-
+
+#version 4.1
+int main () {
+	return ;
+}
 
 
+#end
 
+#define Stringify(Macro) _Stringify Macro
+
+const char *source = Stringify (Shader_Source);
 
 

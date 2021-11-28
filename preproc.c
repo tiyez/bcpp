@@ -50,6 +50,7 @@ struct macro_desc {
 	int			is_variadic;
 	int			is_multiline;
 	int			is_undef;
+	int			disable_directives;
 	struct position	pos;
 };
 
@@ -95,6 +96,7 @@ int		add_content_to_translation_unit (struct bcpp *bcpp, struct tokenizer *token
 					.filename = filename,
 					.line = 1,
 					.column = 1,
+					.at_the_beginning = 1,
 				}, *pos = &cpos;
 
 				success = evaluate_directives (bcpp, tokenizer, tokens, pos);
@@ -333,8 +335,8 @@ int		find_macro_arg (struct macro_args *args, const char *identifier, usize *ind
 			arg_index = args->size - 1;
 			success = 1;
 		} else {
-			Error_Message (pos, "'__VA_ARGS__' token in non-variadic macro body");
-			success = 0;
+			arg_index = args->size;
+			success = 1;
 		}
 	} else {
 		while (arg_index < args->size && 0 != strcmp (identifier, args->tokens[arg_index][0])) {
@@ -520,13 +522,18 @@ int		define_macro_body (struct macro_desc *desc, struct tokenizer *tokenizer, co
 		char	*begin = tokenizer->current;
 
 		desc->pos = *pos;
-		if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "##")) {
+		if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "/") && 1 == get_token_offset (tokens)) {
 			desc->is_multiline = 1;
 			success = copy_token (tokenizer, tokens);
 			if (success) {
 				const char	*end_tokens;
 
 				tokens = next_const_token (tokens, pos);
+				if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "-") && 0 == get_token_offset (tokens)) {
+					success = copy_token (tokenizer, tokens);
+					desc->disable_directives = 1;
+					tokens = next_const_token (tokens, pos);
+				}
 				success = copy_token (tokenizer, tokens);
 				end_tokens = tokens;
 				while (success && tokens[-1] && tokens[-1] != Token_newline) {
@@ -553,7 +560,7 @@ int		define_macro_body (struct macro_desc *desc, struct tokenizer *tokenizer, co
 							if (tokens[-1] == Token_newline && end[-1] == tokens[-1]) {
 								break ;
 							} else {
-								while (success && start[-1] && start[-1] != Token_newline) {
+								while (success && start[-1] && start[-1] != Token_newline && start != tokens) {
 									success = copy_token (tokenizer, start);
 									start = next_const_token (start, 0);
 								}
@@ -765,9 +772,10 @@ int		push_char (struct unescape_pusher *pusher, int ch) {
 	return (success);
 }
 
-int		stringify_tokens (struct tokenizer *tokenizer, const char *tokens, int count, int offset, const struct position *pos) {
+int		stringify_tokens (struct tokenizer *tokenizer, const char *tokens, int count, int offset, int is_ws_preserved, const struct position *pos) {
 	int		success = 1;
 	int		until_end = (count == 0);
+	int		is_nl = 0;
 	struct unescape_pusher	pusher = {
 		.tokenizer = tokenizer,
 		.offset = offset,
@@ -777,10 +785,20 @@ int		stringify_tokens (struct tokenizer *tokenizer, const char *tokens, int coun
 		while (success && (until_end || count > 0) && tokens[-1] && tokens[-1] != Token_newline) {
 			const char	*string;
 
-			if (pusher.size > 0 || pusher.push_at_existing) {
-				if (get_token_offset (tokens) > 0) {
-					success = push_char (&pusher, ' ');
+			if (pusher.size > 0 || pusher.push_at_existing || is_nl) {
+				if (is_ws_preserved) {
+					int		count = get_token_offset (tokens);
+
+					while (count > 0) {
+						success = push_char (&pusher, ' ');
+						count -= 1;
+					}
+				} else {
+					if (get_token_offset (tokens) > 0) {
+						success = push_char (&pusher, ' ');
+					}
 				}
+				is_nl = 0;
 			}
 			if (success) {
 				string = tokens;
@@ -803,15 +821,19 @@ int		stringify_tokens (struct tokenizer *tokenizer, const char *tokens, int coun
 		}
 		if (tokens[-1] == Token_newline) {
 			if (pusher.size > 0) {
-				success = push_string_token (tokenizer, offset, pusher.buffer, pusher.size, pusher.push_at_existing);
-				pusher.size = 0;
-				pusher.push_at_existing = 1;
+				success = push_char(&pusher, '\n');
+				if (success) {
+					success = push_string_token (tokenizer, offset, pusher.buffer, pusher.size, pusher.push_at_existing);
+					pusher.size = 0;
+					pusher.push_at_existing = 1;
+					is_nl = 1;
+				}
 			}
 			if (success) {
 				success = push_newline_token (tokenizer);
 				if (success) {
 					tokens = next_const_token (tokens, 0);
-					offset = get_token_offset (tokens);
+					offset = 0;
 					pusher.push_at_existing = 0;
 				}
 			}
@@ -829,7 +851,7 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 	char		*begin = tokenizer->current;
 	struct position	cpos = *logpos, *pos = &cpos;
 
-	if (!desc->is_multiline && body[-1] == Token_punctuator && 0 == strcmp (body, "##")) {
+	if (body[-1] == Token_punctuator && 0 == strcmp (body, "##")) {
 		Error_Message (logpos, "'##' cannot appear at the beginning of line");
 		success = 0;
 	} else {
@@ -903,15 +925,15 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 						if (arg_index < args->size) {
 							const char	*arg = args->tokens[arg_index][2];
 
-							success = stringify_tokens (tokenizer, arg, 0, offset, logpos);
+							success = stringify_tokens (tokenizer, arg, 0, offset, 0, logpos);
 						} else {
-							success = stringify_tokens (tokenizer, body, 1, offset, logpos);
+							success = stringify_tokens (tokenizer, body, 1, offset, 0, logpos);
 						}
 					} else {
 						success = 0;
 					}
 				} else {
-					success = stringify_tokens (tokenizer, body, 1, offset, logpos);
+					success = stringify_tokens (tokenizer, body, 1, offset, 0, logpos);
 				}
 				next = next_const_token (next, pos);
 			} else {
@@ -955,17 +977,17 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 	return (success);
 }
 
-int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct tokenizer *macro_tokenizer, int offset, struct macro_desc *desc, struct macro_args *args, const struct position *pos) {
+int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct tokenizer *macro_tokenizer, int offset, struct macro_desc *desc, struct macro_args *args) {
 	int		success;
 	const char	*macro_body;
 
 	Debug_Code (print_tokens (desc->ident, 0, "orig|", stderr));
 	macro_body = desc->body;
-	success = evaluate_pasting_concatenation_and_stringization (bcpp, macro_tokenizer, &macro_body, desc, args, pos);
+	success = evaluate_pasting_concatenation_and_stringization (bcpp, macro_tokenizer, &macro_body, desc, args, &desc->pos);
 	if (success) {
-		struct position	cinner_pos = *pos, *inner_pos = &cinner_pos;
+		struct position	cinner_pos = desc->pos, *inner_pos = &cinner_pos;
 
-		if (desc->is_multiline) {
+		if (desc->is_multiline && !desc->disable_directives) {
 			success = evaluate_directives (bcpp, tokenizer, macro_body, inner_pos);
 		} else {
 			Debug_Code (char	prefix[256]);
@@ -973,18 +995,34 @@ int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 			Debug_Code (snprintf (prefix, sizeof prefix, "macro '%s'|", desc->ident));
 			Debug_Code (print_tokens (macro_body, 1, prefix, stderr));
 			if (macro_body[-1]) {
-				char	*begin;
+				int		is_stringify = 0;
 
-				begin = tokenizer->current;
-				success = evaluate_token (bcpp, tokenizer, &macro_body, inner_pos, 1, 0);
-				if (success) {
-					begin = get_next_from_tokenizer (tokenizer, begin);
-					if (begin) {
-						set_token_offset (begin, offset);
+				if (macro_body[-1] == Token_identifier && 0 == strcmp (macro_body, "_Stringify")) {
+					is_stringify = 1;
+				} else {
+					char	*begin;
+
+					begin = tokenizer->current;
+					success = evaluate_token (bcpp, tokenizer, &macro_body, inner_pos, 1, 0);
+					if (success) {
+						begin = get_next_from_tokenizer (tokenizer, begin);
+						if (begin && !desc->is_multiline) {
+							set_token_offset (begin, offset);
+						}
+						while (success && macro_body[-1]) {
+							if (macro_body[-1] == Token_identifier && 0 == strcmp (macro_body, "_Stringify")) {
+								is_stringify = 1;
+								break ;
+							}
+							success = evaluate_token (bcpp, tokenizer, &macro_body, inner_pos, 1, 0);
+						}
 					}
-					while (success && macro_body[-1]) {
-						success = evaluate_token (bcpp, tokenizer, &macro_body, inner_pos, 1, 0);
-					}
+				}
+				if (success && is_stringify) {
+					Assert (macro_body[-1] == Token_identifier && 0 == strcmp (macro_body, "_Stringify"));
+					Debug ("STRINGIFY");
+					macro_body = next_const_token (macro_body, inner_pos);
+					success = stringify_tokens (tokenizer, macro_body, 0, 0, 1, inner_pos);
 				}
 			}
 		}
@@ -1015,7 +1053,7 @@ int		evaluate_macro (struct bcpp *bcpp, struct tokenizer *tokenizer, struct macr
 		*ptokens = next_const_token (*ptokens, pos);
 		success = 1;
 	}
-	success = success && evaluate_macro_body (bcpp, tokenizer, macro_tokenizer, offset, desc, args, pos);
+	success = success && evaluate_macro_body (bcpp, tokenizer, macro_tokenizer, offset, desc, args);
 	free_tokenizer (macro_tokenizer);
 	return (success);
 }
@@ -1035,17 +1073,13 @@ int		evaluate_token (struct bcpp *bcpp, struct tokenizer *tokenizer, const char 
 				int		old_line = pos->line;
 
 				if ((success = push_macro_stack (&bcpp->macro_stack, macro->ident))) {
-					struct position	macro_pos;
-
-					macro_pos = *pos;
 					if (macro->is_multiline && is_top_level) {
-						macro_pos = macro->pos;
-						success = push_line_directive (tokenizer, macro_pos.filename, macro_pos.line);
+						success = push_line_directive (tokenizer, pos->filename, pos->line);
 					}
-					success = success && evaluate_macro (bcpp, tokenizer, macro, ptokens, &macro_pos, 1);
+					success = success && evaluate_macro (bcpp, tokenizer, macro, ptokens, pos, 1);
 					pop_macro_stack (&bcpp->macro_stack);
 					if (macro->is_multiline) {
-						new_paste_column = macro_pos.column - 1;
+						new_paste_column = pos->column - 1;
 					}
 				}
 				if (success) {
@@ -1227,7 +1261,7 @@ int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer
 
 				macro_body = get_next_from_tokenizer (macro_tokenizer, macro_body);
 				memset (macros, 0, sizeof macros);
-				if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "##")) {
+				if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "/") && 1 == get_token_offset (tokens)) {
 					is_multiline = 1;
 					tokens = next_const_token (tokens, pos);
 					end_tokens = tokens;
@@ -1293,7 +1327,7 @@ int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer
 						if (macro) {
 							success = push_line_directive (tokenizer, macro->pos.filename, macro->pos.line);
 							if (success) {
-								success = evaluate_macro_body (bcpp, tokenizer, macro_tokenizer, macro->pos.column - 1, macro, args, macro_pos);
+								success = evaluate_macro_body (bcpp, tokenizer, macro_tokenizer, macro->pos.column - 1, macro, args);
 								if (success && is_multiline && !macro->is_multiline) {
 									success = push_newline_token (tokenizer);
 								}
@@ -1328,7 +1362,7 @@ int		evaluate_stringify_directive (struct bcpp *bcpp, struct tokenizer *tokenize
 	int		success;
 	const char	*tokens = *ptokens;
 
-	if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "##")) {
+	if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "/") && 1 == get_token_offset (tokens)) {
 		const char	*end_tokens;
 		struct tokenizer	cinner_tokenizer = {0}, *inner_tokenizer = &cinner_tokenizer;
 
@@ -1353,7 +1387,7 @@ int		evaluate_stringify_directive (struct bcpp *bcpp, struct tokenizer *tokenize
 					if (tokens[-1] == end[-1] && tokens[-1] == Token_newline) {
 						break ;
 					} else {
-						while (success && start[-1] && start[-1] != Token_newline) {
+						while (success && start[-1] && start[-1] != Token_newline && start != tokens) {
 							success = copy_token (inner_tokenizer, start);
 							start = next_const_token (start, 0);
 						}
@@ -1367,9 +1401,11 @@ int		evaluate_stringify_directive (struct bcpp *bcpp, struct tokenizer *tokenize
 				tokens = next_const_token (tokens, pos);
 			}
 		}
+		success = success && end_tokenizer (inner_tokenizer);
 		if (success) {
-			success = stringify_tokens (tokenizer, get_first_token (inner_tokenizer), 0, 0, pos);
+			success = stringify_tokens (tokenizer, get_first_token (inner_tokenizer), 0, 0, 1, pos);
 		}
+		free_tokenizer (inner_tokenizer);
 	} else {
 		Error_Message (pos, "only multiline stringify is supported right now");
 		success = 0;
@@ -1392,7 +1428,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 		const char	*next = next_const_token (tokens, 0);
 
 		if ((tokens[-1] == Token_newline && next[-1] == Token_punctuator && 0 == strcmp (next, "#")) ||
-			(pos->line == 1 && tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "#"))) {
+			(pos->at_the_beginning && tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "#"))) {
 			if (tokens[-1] == Token_newline) {
 				copy_token (tokenizer, tokens);
 				tokens = next_const_token (tokens, pos);
@@ -1573,6 +1609,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 						success = evaluate_calleach_directive (bcpp, tokenizer, &tokens, pos);
 					}
 				} else if (0 == strcmp (tokens, "stringify")) {
+					Debug ("STRINGIFY");
 					if (is_active) {
 						tokens = next_const_token (tokens, pos);
 						success = evaluate_stringify_directive (bcpp, tokenizer, &tokens, pos);
