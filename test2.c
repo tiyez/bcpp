@@ -57,11 +57,35 @@ int main () {
 	return ;
 }
 
-
+hello
+world
 #end
 
 #define Stringify(Macro) _Stringify Macro
 
+#define MUL /
+#define HI WO
+#end
+
+HI
+MUL
+HI
+
 const char *source = Stringify (Shader_Source);
+
+
+#define INode_Type_List /
+(file)
+(folder)
+(link)
+#end
+
+enum inode_type {
+	#calleach INode_Type_List (name) name,
+};
+
+struct inode {
+	enum	type;
+};
 
 

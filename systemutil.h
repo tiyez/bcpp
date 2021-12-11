@@ -183,13 +183,15 @@ int		execute_program (const char *program_path, int read_from_fd, const char *in
 						free (array);
 						array = 0;
 					}
+					exit_code = 0;
 					if (0 > waitpid (fork_result, &status, 0)) {
 						Error ("cannot waitpid");
 						perror (__func__);
 						free (array);
+						exit_code = 1;
 						array = 0;
 					}
-					if (WIFEXITED (status)) {
+					if (!exit_code && WIFEXITED (status)) {
 						exit_code = WEXITSTATUS (status);
 					}
 					output = array;
@@ -201,16 +203,19 @@ int		execute_program (const char *program_path, int read_from_fd, const char *in
 				close (outpipes[1]);
 				close (inpipes[0]);
 				close (inpipes[1]);
+				exit_code = 1;
 			}
 		} else {
 			Error ("cannot create pipes");
 			perror (__func__);
 			close (outpipes[0]);
 			close (outpipes[1]);
+			exit_code = 1;
 		}
 	} else {
 		Error ("cannot create pipes");
 		perror (__func__);
+		exit_code = 1;
 	}
 	*poutput = output;
 	return (exit_code);

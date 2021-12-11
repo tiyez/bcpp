@@ -1,5 +1,5 @@
 
-
+// #define Release
 
 
 #include <stdio.h>
@@ -41,11 +41,11 @@ void	tokenizer_stess_test (void) {
 
 		snprintf (buf, sizeof buf, "TOKEN_%zu", index);
 		success = push_token (tokenizer, 0, Token_identifier, buf, strlen (buf));
-		success = success && push_newline_token (tokenizer);
+		success = success && push_newline_token (tokenizer, 0);
 		index += 1;
 	}
 	if (success) {
-		success = end_tokenizer (tokenizer);
+		success = end_tokenizer (tokenizer, 0);
 		if (success) {
 			print_tokens_until (get_first_token (tokenizer), 1, "", Token_eof, stderr);
 		}
@@ -70,8 +70,8 @@ void	macro_desc_stress_test (struct bcpp *bcpp) {
 		reset_tokenizer (tokenizer);
 		snprintf (buf, sizeof buf, "MACRO_%zu", index);
 		success = push_token (tokenizer, 0, Token_identifier, buf, strlen (buf));
-		success = success && push_newline_token (tokenizer);
-		success = success && end_tokenizer (tokenizer);
+		success = success && push_newline_token (tokenizer, 0);
+		success = success && end_tokenizer (tokenizer, 0);
 		tokens = get_first_token (tokenizer);
 		success = success && define_macro (bcpp, &tokens, &pos);
 		index += 1;
@@ -84,9 +84,11 @@ void	macro_desc_stress_test (struct bcpp *bcpp) {
 }
 
 
+
 int main (int args_count, char *args[], char *env[]) {
 
 	struct bcpp	cbcpp = {0}, *bcpp = &cbcpp;
+	int		success;
 
 	// test_first_four_preprocessing_stages ();
 	// test_tokenize_stage ();
@@ -94,14 +96,14 @@ int main (int args_count, char *args[], char *env[]) {
 	// test_bcpp (bcpp, "/Users/jsandsla/Projects/bcpp/test.c");
 	// test_bcpp (bcpp, "test.c");
 	if (args_count > 1) {
-		test_bcpp (bcpp, args[1]);
+		success = test_bcpp (bcpp, args[1]);
 	} else {
-		test_bcpp (bcpp, "main.c");
+		success = test_bcpp (bcpp, "main.c");
 	}
 
 	// macro_desc_stress_test (bcpp);
 	// tokenizer_stess_test ();
-
+	return (!success);
 }
 
 

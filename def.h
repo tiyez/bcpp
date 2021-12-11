@@ -6,9 +6,11 @@
 
 #define println(...) do { printf (__VA_ARGS__); printf ("\n"); } while (0)
 
-// #define No_Error_Messages
-// #define No_Debug_Messages
-// #define No_Debug_Code
+#ifdef Release
+#	define No_Error_Messages
+#	define No_Debug_Messages
+#	define No_Debug_Code
+#endif
 
 #if defined(No_Error_Messages) || defined(No_Messages)
 #	define Error(...)
@@ -37,19 +39,19 @@ do {fprintf (stderr, "Debug:%s:%d: ", __func__, __LINE__);\
 #endif
 
 #define System_Error_Message(pos, ...) \
-do {fprintf (stderr, "%s:%d:%d: system error at %s:%d:", (pos)->filename, (pos)->line, (pos)->column, __func__, __LINE__);\
+do {fprintf (stderr, "%s:%d:%d: System Error at %s:%d:", (pos)->filename, (pos)->line, (pos)->column, __func__, __LINE__);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
 } while (0)
 
 #define Error_Message(pos, ...) \
-do {fprintf (stderr, "%s:%d:%d: error: ", (pos)->filename, (pos)->line, (pos)->column);\
+do {fprintf (stderr, "%s:%d:%d: Error: ", (pos)->filename, (pos)->line, (pos)->column);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
 } while (0)
 
 #define Error_Message_p(filename, line, column, ...) \
-do {fprintf (stderr, "%s:%d:%d: error: ", filename, line, column);\
+do {fprintf (stderr, "%s:%d:%d: Error: ", filename, line, column);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
 } while (0)

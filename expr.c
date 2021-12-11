@@ -235,20 +235,20 @@ int		evaluate_operator (struct value_stack *vstack, struct op_stack *ostack) {
 	return (success);
 }
 
-int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret);
+int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret, const struct position *pos);
 
-int		evaluate_expression (const char *tokens, isize *ret) {
+int		evaluate_expression (const char *tokens, isize *ret, const struct position *pos) {
 	int					success;
 	struct value_stack	cvstack, *vstack = &cvstack;
 	struct op_stack		costack, *ostack = &costack;
 
 	init_value_stack (vstack);
 	init_op_stack (ostack);
-	success = evaluate_expression_scope (vstack, ostack, &tokens, ret);
+	success = evaluate_expression_scope (vstack, ostack, &tokens, ret, pos);
 	return (success);
 }
 
-int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret) {
+int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret, const struct position *pos) {
 	int					success;
 	const char			*tokens = *ptokens;
 	int					is_unary = 1;
@@ -262,7 +262,7 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 				success = success && push_op_stack (ostack);
 				if (success) {
 					tokens = next_const_token (tokens, 0);
-					success = evaluate_expression_scope (vstack, ostack, &tokens, ret);
+					success = evaluate_expression_scope (vstack, ostack, &tokens, ret, pos);
 					if (success) {
 						pop_op_stack (ostack);
 						pop_value_stack (vstack);
@@ -272,7 +272,7 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 					}
 				}
 			} else {
-				Error ("invalid token");
+				Error_Message (pos, "invalid token");
 				success = 0;
 			}
 		} else if (tokens[-1] == Token_preprocessing_number) {
@@ -280,7 +280,7 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 				success = push_value (vstack, atoi (tokens));
 				is_unary = 0;
 			} else {
-				Error ("invalid token '%s'", tokens);
+				Error_Message (pos, "invalid token '%s'", tokens);
 				success = 0;
 			}
 		} else if (tokens[-1] == Token_punctuator) {
@@ -298,11 +298,11 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 				}
 				success = push_op (ostack, index);
 			} else {
-				Error ("unrecognized operator '%s'", tokens);
+				Error_Message (pos, "unrecognized operator '%s'", tokens);
 				success = 0;
 			}
 		} else {
-			Error ("unrecognized token '%s'", tokens);
+			Error_Message (pos, "unrecognized token '%s'", tokens);
 			success = 0;
 		}
 		tokens = next_const_token (tokens, 0);
