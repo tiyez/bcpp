@@ -18,20 +18,3 @@ typedef CF_ENUM(CFIndex) {
     kCFCompareEqualTo = 0,
     kCFCompareGreaterThan = 1
 };
-
-#define A() a
-A()
-A
-
-()
-
-#define B(b) b
-B(A)()
-#define AA AA
-AA
-
-#if BYPASS
-#include "preproc.c"
-
-#endif
-

@@ -63,7 +63,7 @@ void	preprocess_text (char *content, char *end, int **nl_array) {
 				} break ;
 			}
 			read += 1;
-		} else if (!is_string && *read == '\\' && read[1] == '\n') {
+		} else if (*read == '\\' && read[1] == '\n') {
 			read += 2;
 			push_newline (newline_array, line);
 			line += 1;
@@ -88,7 +88,6 @@ void	preprocess_text (char *content, char *end, int **nl_array) {
 		} else if (!is_string && *read == '/' && read_next_char (read) == '*') {
 			int		offset = read_next_char_offset (read);
 
-			Debug ("comment at line %d", line);
 			if (offset > 1) {
 				push_newline (newline_array, line);
 				line += 1;

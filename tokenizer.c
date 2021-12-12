@@ -425,7 +425,7 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		push_token (tokenizer, state->offset, Token_identifier, start, content - start);
 		state->offset = 0;
 		state->its_include = 0;
-		if (state->check_include && 0 == strncmp (start, "include", content - start)) {
+		if (state->check_include && (0 == strncmp (start, "include", content - start) || 0 == strncmp (start, "import", content - start))) {
 			state->its_include = 1;
 		}
 		state->check_include = 0;
@@ -539,13 +539,14 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 int		revert_token (struct tokenizer *tokenizer) {
 	int		success;
 
+	/* TODO: fix inter-paged revert case */
 	if (tokenizer->prev) {
 		if (tokenizer->current[-1] == Token_newline) {
 			tokenizer->size -= 2;
 		} else {
 			tokenizer->size -= get_token_length (tokenizer->current) + 1;
 		}
-		tokenizer->size -= 3;
+		tokenizer->size -= 5;
 		tokenizer->current = tokenizer->prev;
 		tokenizer->prev = 0;
 		success = 1;
@@ -798,14 +799,33 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 		if (tokens[-1] == Token_newline) {
 			size_t	index = 0, initial_line = pos->line;
 
-			while (index < (size_t) tokens[0]) {
-				pos->line += 1;
-				fprintf (file, "\n");
-				fprintf (file, "%s", line_prefix);
+			if (tokens[0] > 16) {
+				const char	*next;
+				int		old_line = pos->line;
+
+				pos->line += tokens[0];
+				next = next_const_token (tokens, 0);
+				while (next[-1] == Token_newline) {
+					pos->line += next[0];
+					tokens = next;
+					next = next_const_token (next, 0);
+				}
+				fprintf (file, "\n%s", line_prefix);
 				if (with_lines) {
 					fprintf (file, "%*d|", 4, pos->line);
 				}
-				index += 1;
+				fprintf (file, "#line %d ", pos->line);
+				print_string_token (pos->filename, file);
+				fprintf (file, "\n");
+			} else {
+				while (index < (size_t) tokens[0]) {
+					pos->line += 1;
+					fprintf (file, "\n%s", line_prefix);
+					if (with_lines) {
+						fprintf (file, "%*d|", 4, pos->line);
+					}
+					index += 1;
+				}
 			}
 			if (!next_const_token (tokens, 0)[-1]) {
 				fprintf (file, "%*.s\n", get_token_offset (tokens), "");
@@ -822,8 +842,6 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 						next = next_const_token (next, 0);
 						if (next[-1] && next[-1] == Token_string) {
 							pos->filename = next;
-						} else {
-							pos->filename = "<unknown>";
 						}
 					}
 				}

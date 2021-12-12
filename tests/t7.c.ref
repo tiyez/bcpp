@@ -1,0 +1,24 @@
+#line 1 "<predefined>"
+#line 362 "<predefined>"
+#line 1 "t7.c"
+
+
+
+
+
+
+
+
+
+typedef CFIndex CFComparisonResult; enum {
+    kCFCompareLessThan = -1L,
+    kCFCompareEqualTo = 0,
+    kCFCompareGreaterThan = 1
+};
+
+typedef enum {
+    kCFCompareLessThan = -1L,
+    kCFCompareEqualTo = 0,
+    kCFCompareGreaterThan = 1
+};
+ 
