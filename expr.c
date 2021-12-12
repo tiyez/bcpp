@@ -184,6 +184,8 @@ const struct op	ops[] = {
 	{ 10, 0, "&&" },
 
 	{ 11, 0, "||" },
+
+/* TODO: add conditional operator */
 };
 
 int		evaluate_operator (struct value_stack *vstack, struct op_stack *ostack) {
@@ -226,7 +228,7 @@ int		evaluate_operator (struct value_stack *vstack, struct op_stack *ostack) {
 			case Op_bitwise_and: result = left & right; break ;
 			case Op_bitwise_xor: result = left ^ right; break ;
 			case Op_bitwise_or: result = left | right; break ;
-			case Op_logical_and: result = left && right; break ;
+			case Op_logical_and: result = left && right; break ; /* TODO: short curcuit */
 			case Op_logical_or: result = left || right; break ;
 		}
 		// Debug ("evaluating binary '%zd %s %zd', result is %zd", left, op->string, right, result);
@@ -235,7 +237,7 @@ int		evaluate_operator (struct value_stack *vstack, struct op_stack *ostack) {
 	return (success);
 }
 
-int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret, const struct position *pos);
+int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret, const char *end, const struct position *pos);
 
 int		evaluate_expression (const char *tokens, isize *ret, const struct position *pos) {
 	int					success;
@@ -244,17 +246,17 @@ int		evaluate_expression (const char *tokens, isize *ret, const struct position 
 
 	init_value_stack (vstack);
 	init_op_stack (ostack);
-	success = evaluate_expression_scope (vstack, ostack, &tokens, ret, pos);
+	success = evaluate_expression_scope (vstack, ostack, &tokens, ret, 0, pos);
 	return (success);
 }
 
-int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret, const struct position *pos) {
+int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ostack, const char **ptokens, isize *ret, const char *end, const struct position *pos) {
 	int					success;
 	const char			*tokens = *ptokens;
 	int					is_unary = 1;
 
 	success = 1;
-	while (success && tokens[-1] && tokens[-1] != Token_newline && !(tokens[-1] == Token_punctuator && 0 == strcmp (tokens, ")"))) {
+	while (success && tokens[-1] && tokens[-1] != Token_newline && !(end && tokens[-1] == Token_punctuator && 0 == strcmp (tokens, end))) {
 		if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "(")) {
 			if (is_unary) {
 				Debug ("push %zu %zu", vstack->count, ostack->count);
@@ -262,13 +264,77 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 				success = success && push_op_stack (ostack);
 				if (success) {
 					tokens = next_const_token (tokens, 0);
-					success = evaluate_expression_scope (vstack, ostack, &tokens, ret, pos);
+					success = evaluate_expression_scope (vstack, ostack, &tokens, ret, ")", pos);
 					if (success) {
 						pop_op_stack (ostack);
 						pop_value_stack (vstack);
 						Debug ("pop %zu %zu", vstack->count, ostack->count);
 						push_value (vstack, *ret);
 						is_unary = 0;
+						tokens = next_const_token (tokens, 0);
+					}
+				}
+			} else {
+				Error_Message (pos, "invalid token");
+				success = 0;
+			}
+		} else if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "?")) {
+			if (!is_unary) {
+				while (success && ostack->count > 0) {
+					success = evaluate_operator (vstack, ostack);
+				}
+				if (vstack->count > 0) {
+					*ret = pop_value (vstack);
+				} else {
+					Error ("no value in the stack");
+					success = 0;
+					*ret = 0;
+				}
+				if (success) {
+					int		is_left = !!*ret;
+
+					if (!is_left) {
+						int		appearence = 1;
+
+						while (tokens[-1] && tokens[-1] != Token_newline && appearence > 0) {
+							tokens = next_const_token (tokens, 0);
+							if (tokens[-1] == Token_punctuator) {
+								appearence += (0 == strcmp (tokens, "?"));
+								appearence -= (0 == strcmp (tokens, ":"));
+							}
+						}
+						success = (appearence == 0 && tokens[-1] == Token_punctuator && 0 == strcmp (tokens, ":"));
+						if (!success) {
+							Error_Message (pos, "invalid conditional operator");
+						}
+					}
+					if (success) {
+						Debug ("push %zu %zu", vstack->count, ostack->count);
+						success = push_value_stack (vstack);
+						success = success && push_op_stack (ostack);
+						if (success) {
+							tokens = next_const_token (tokens, 0);
+							success = evaluate_expression_scope (vstack, ostack, &tokens, ret, is_left ? ":" : end, pos);
+							if (success) {
+								pop_op_stack (ostack);
+								pop_value_stack (vstack);
+								Debug ("pop %zu %zu", vstack->count, ostack->count);
+								push_value (vstack, *ret);
+								is_unary = 1;
+								if (is_left) {
+									int		group = 0;
+
+									tokens = next_const_token (tokens, 0);
+									while (tokens[-1] && tokens[-1] != Token_newline && !(end && group == 0 && tokens[-1] == Token_punctuator && 0 == strcmp (tokens, end))) {
+										if (tokens[-1] == Token_punctuator) {
+											group += (0 == strcmp (tokens, "("));
+											group -= (0 == strcmp (tokens, ")"));
+										}
+										tokens = next_const_token (tokens, 0);
+									}
+								}
+							}
+						}
 					}
 				}
 			} else {
@@ -279,6 +345,7 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 			if (is_unary) {
 				success = push_value (vstack, atoi (tokens));
 				is_unary = 0;
+				tokens = next_const_token (tokens, 0);
 			} else {
 				Error_Message (pos, "invalid token '%s'", tokens);
 				success = 0;
@@ -297,6 +364,7 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 					is_unary = 1;
 				}
 				success = push_op (ostack, index);
+				tokens = next_const_token (tokens, 0);
 			} else {
 				Error_Message (pos, "unrecognized operator '%s'", tokens);
 				success = 0;
@@ -305,7 +373,6 @@ int		evaluate_expression_scope (struct value_stack *vstack, struct op_stack *ost
 			Error_Message (pos, "unrecognized token '%s'", tokens);
 			success = 0;
 		}
-		tokens = next_const_token (tokens, 0);
 	}
 	while (success && ostack->count > 0) {
 		success = evaluate_operator (vstack, ostack);

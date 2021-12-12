@@ -223,9 +223,11 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					length = stpncpy (path + length, filename, ptr - filename) - path;
 					length = stpcpy (path + length, ".framework") - path;
 					sptr = path + length;
+					path[length] = 0;
 					if (check_file_access (path, Access_Mode_read)) {
 						length = stpcpy (path + length, "/Headers/") - path;
 						length = stpcpy (path + length, ptr + 1) - path;
+						path[length] = 0;
 						found = check_file_access (path, Access_Mode_read);
 						if (found) {
 							usize	length = 0;
@@ -233,6 +235,7 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 							length = stpncpy (framework + length, path, sptr - path) - framework;
 							length = stpcpy (framework + length, "/Frameworks/") - framework;
 							Debug ("Trying to find Frameworks file: %s", framework);
+							framework[length] = 0;
 							if (check_file_access (framework, Access_Mode_read)) {
 								if (bcpp->frameworks_count < Array_Count (bcpp->frameworks)) {
 									bcpp->frameworks[bcpp->frameworks_count] = framework;
@@ -250,6 +253,7 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 				}
 			} else {
 				length = stpcpy (path + length, filename) - path;
+				path[length] = 0;
 				found = check_file_access (path, Access_Mode_read);
 				success = 1;
 			}
@@ -267,23 +271,19 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 			ptr = strchr (filename, '/');
 			if (ptr) {
 				while (index < bcpp->frameworks_count) {
-					Debug ("trying to find nested framework %zu: %s %p", index, bcpp->frameworks[index], bcpp->frameworks[index]);
 					length = stpcpy (path, bcpp->frameworks[index]) - path;
-					Debug ("path: %s", path);
 					length = stpncpy (path + length, filename, ptr - filename) - path;
 					length = stpcpy (path + length, ".framework") - path;
 					sptr = path + length;
-					Debug ("checking nested framework: %s", path);
 					if (check_file_access (path, Access_Mode_read)) {
 						length = stpcpy (path + length, "/Headers/") - path;
 						length = stpcpy (path + length, ptr + 1) - path;
-						Debug ("checking file: %s", path);
 						found = check_file_access (path, Access_Mode_read);
 						if (found) {
 							usize	length = 0;
 
-							length = stpncpy (framework, path, sptr - path) - framework;
-							length = stpcpy (framework, "/Frameworks/") - framework;
+							length = stpncpy (framework + length, path, sptr - path) - framework;
+							length = stpcpy (framework + length, "/Frameworks/") - framework;
 							if (check_file_access (framework, Access_Mode_read)) {
 								if (bcpp->frameworks_count < Array_Count (bcpp->frameworks)) {
 									bcpp->frameworks[bcpp->frameworks_count] = framework;
@@ -316,10 +316,8 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 			} else {
 				success = 1;
 			}
-			Debug ("Exited");
 			if (success && framework[0]) {
 				bcpp->frameworks_count -= 1;
-				Debug ("New bcpp->frameworks_count: %zu", bcpp->frameworks_count);
 			}
 		} else {
 			Error_Message (pos, "file not found");
@@ -1395,6 +1393,7 @@ int		expand_and_evaluate_expression (struct bcpp *bcpp, const char *tokens, isiz
 			begin = get_next_from_tokenizer (tokenizer, begin);
 			Debug_Code (print_tokens (begin, 1, "if expr|", stderr));
 			success = evaluate_expression (begin, ret, pos);
+			Debug ("Evaluated to %zd", *ret);
 			if (!success) {
 				Debug_Code (print_tokens (get_first_token (tokenizer), 1, "if expr expanded|", stderr));
 			}
@@ -1908,10 +1907,11 @@ int		parse_bcpp_include_paths (struct bcpp *bcpp, const char *source) {
 		if (!ptr) {
 			break ;
 		}
-		ptr = strnstr (source, " (framework directory)", ptr - source);
-		if (ptr) {
+		ptr = strstr (source, " (framework directory)");
+		if (ptr && ptr < sptr) {
 			is_framework = 1;
 		} else {
+			is_framework = 0;
 			ptr = sptr;
 		}
 		if (ptr - source > 0) {
@@ -1945,6 +1945,7 @@ int		init_bcpp (struct bcpp *bcpp, int args_count, char *args[], char *env[]) {
 
 	memset (bcpp, 0, sizeof *bcpp);
 	bcpp->paste_column = -1;
+	bcpp->frameworks_count = 0;
 	if (check_file_access ("/bin/whereis", Access_Mode_execute)) {
 		whereis_location = "/bin/whereis";
 		success = 1;
@@ -1960,13 +1961,14 @@ int		init_bcpp (struct bcpp *bcpp, int args_count, char *args[], char *env[]) {
 
 		output = read_output_of_program (whereis_location, 1, 2, (char *[]) { (char *) whereis_location, "cc", 0 }, env);
 		if (output) {
-			char	*path = output;
+			char	*path = strchr (output, '/'), *orig_path = output;
 
-			while (*path && *path != '\n') {
+			while (*path && *path != '\n' && *path != ' ') {
 				path += 1;
 			}
 			*path = 0;
-			path = output;
+			path = strchr (output, '/');
+			Debug ("path: %s", path);
 			output = read_output_of_program (path, 2, 6, (char *[]) { path, "-v", "-pthread", "-xc", "-E", "-", 0 }, env);
 			if (output) {
 				char	*ptr;
@@ -1992,7 +1994,11 @@ int		init_bcpp (struct bcpp *bcpp, int args_count, char *args[], char *env[]) {
 				#undef Start_Line
 				#undef End_Line
 				free (output);
+#			if OS_MACOS
 				output = read_output_of_program (path, 1, 5, (char *[]) { path, "-dM", "-E", "-xobjective-c", "-", 0 }, env);
+#			else
+				output = read_output_of_program (path, 1, 4, (char *[]) { path, "-dM", "-E", "-", 0 }, env);
+#			endif
 				if (output) {
 					bcpp->predefined = output;
 					bcpp->predefined_size = strlen (bcpp->predefined);
@@ -2000,9 +2006,9 @@ int		init_bcpp (struct bcpp *bcpp, int args_count, char *args[], char *env[]) {
 					success = 0;
 				}
 				end_tokenizer (&bcpp->do_not_include_those, 0);
-				free (path);
+				free (orig_path);
 			} else {
-				free (path);
+				free (orig_path);
 				success = 0;
 			}
 		} else {

@@ -1,37 +1,12 @@
 
-#define __CF_ENUM_GET_MACRO(_1, _2, NAME, ...) NAME
+#include <stdio.h>
 
-#define __CF_NAMED_ENUM(_type, _name) _type _name; enum
-#define __CF_ANON_ENUM(_type) enum
-#define CF_CLOSED_ENUM(_type, _name) _type _name; enum
-#define CF_OPTIONS(_type, _name) _type _name; enum
-#define CF_ENUM(...) __CF_ENUM_GET_MACRO(__VA_ARGS__, __CF_NAMED_ENUM, __CF_ANON_ENUM, )(__VA_ARGS__)
+int main () {
+	printf ("Hello World!");
+}
 
-typedef CF_ENUM(CFIndex, CFComparisonResult) {
-    kCFCompareLessThan = -1L,
-    kCFCompareEqualTo = 0,
-    kCFCompareGreaterThan = 1
-};
 
-typedef CF_ENUM(CFIndex) {
-    kCFCompareLessThan = -1L,
-    kCFCompareEqualTo = 0,
-    kCFCompareGreaterThan = 1
-};
 
-#define A() a
-A()
-A
 
-()
 
-#define B(b) b
-B(A)()
-#define AA AA
-AA
-
-#if BYPASS
-#include "preproc.c"
-
-#endif
 

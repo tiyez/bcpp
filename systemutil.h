@@ -53,6 +53,9 @@ int		execute_program (const char *program_path, int read_from_fd, const char *in
 
 #if defined OS_LINUX || defined OS_APPLE || defined OS_UNIX
 #	include <unistd.h>
+#	if defined OS_LINUX
+#		include <sys/wait.h>
+#	endif
 #else
 #	error There is no implementation of systemutil for this OS
 #endif
@@ -148,6 +151,7 @@ int		execute_program (const char *program_path, int read_from_fd, const char *in
 								written += just_written;
 							}
 							array = memory;
+							array[readed] = 0;
 							if (success && size - readed > 0 && (just_readed = read (read_from_fd, array + readed, size - readed - 1)) > 0) {
 								readed += just_readed;
 								if (size == readed + 1) {
@@ -194,6 +198,7 @@ int		execute_program (const char *program_path, int read_from_fd, const char *in
 					if (!exit_code && WIFEXITED (status)) {
 						exit_code = WEXITSTATUS (status);
 					}
+					array[readed] = 0;
 					output = array;
 				}
 			} else {
