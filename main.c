@@ -1,5 +1,5 @@
 
-// #define Release
+#define Release
 
 
 #include <stdio.h>
@@ -163,8 +163,9 @@ int main (int args_count, char *args[], char *env[]) {
 					}
 					dep = get_file_dep (&bcpp->filecache, get_token_offset (token));
 					while (dep) {
+						Debug ("DEP: %s", dep);
 						fprintf (file, "%s ", dep);
-						dep = get_next_file_dep (dep);
+						dep = get_next_file_dep (&bcpp->filecache, dep);
 					}
 					fprintf (file, "\n");
 					token = next_const_token (token, 0);
@@ -174,7 +175,7 @@ int main (int args_count, char *args[], char *env[]) {
 						while (dep) {
 							Debug ("dep: %p %s", dep, dep);
 							fprintf (file, "%s ", dep);
-							dep = get_next_file_dep (dep);
+							dep = get_next_file_dep (&bcpp->filecache, dep);
 						}
 						fprintf (file, "\n");
 						token = next_const_token (token, 0);

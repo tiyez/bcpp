@@ -93,7 +93,7 @@ struct bcpp {
 
 #include "expr.c"
 
-const char	*get_next_file_dep (const char *dep);
+const char	*get_next_file_dep (struct filecache *cache, const char *dep);
 
 int		add_file_dep (struct filecache *cache, int index, const char *filename, usize size) {
 	int		success;
@@ -114,26 +114,40 @@ int		add_file_dep (struct filecache *cache, int index, const char *filename, usi
 		success = 1;
 	}
 	if (success) {
-		void	*old = (void *) cache->contents[index][Content_Deps];
+		usize	old = (usize) cache->contents[index][Content_Deps];
 
-		*(void **) (cache->deps + cache->deps_size) = old;
-		cache->deps_size += sizeof (void *);
-		cache->contents[index][Content_Deps] = cache->deps + cache->deps_size;
+		*(usize *) (cache->deps + cache->deps_size) = old;
+		cache->deps_size += sizeof (usize);
+		cache->contents[index][Content_Deps] = (void *) cache->deps_size;
 		memcpy (cache->deps + cache->deps_size, filename, size);
 		cache->deps[cache->deps_size + size] = 0;
-		Debug ("DEP ADDED FOR %d %zu: %p -> %p %s", index, size, get_next_file_dep (cache->deps + cache->deps_size), cache->deps + cache->deps_size, cache->deps + cache->deps_size);
 		cache->deps_size += size + 1;
 	}
 	return (success);
 }
 
 const char	*get_file_dep (struct filecache *cache, int index) {
-	return (cache->contents[index][Content_Deps]);
+	const char	*result;
+
+	if (cache->contents[index][Content_Deps]) {
+		result = cache->deps + (usize) cache->contents[index][Content_Deps];
+	} else {
+		result = 0;
+	}
+	return (result);
 }
 
-const char	*get_next_file_dep (const char *dep) {
-	Debug ("next dep ptr: %p -> %p", dep, *(void **) (dep - sizeof (void *)));
-	return (*(void **) (dep - sizeof (void *)));
+const char	*get_next_file_dep (struct filecache *cache, const char *dep) {
+	const char	*result;
+	usize		next;
+
+	next = *(usize *) (dep - sizeof (usize));
+	if (next) {
+		result = cache->deps + next;
+	} else {
+		result = 0;
+	}
+	return (result);
 }
 
 int		add_file_to_cache (struct filecache *cache, const char *filename, char *content, usize size, int *pindex) {
