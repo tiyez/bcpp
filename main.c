@@ -83,26 +83,104 @@ void	macro_desc_stress_test (struct bcpp *bcpp) {
 	}
 }
 
+#include <getopt.h>
 
+void	usage(const char *progname) {
+	printf ("BCPP v0.1\n\nUsage: %s filename\n", progname);
+	printf ("\nOptions:\n");
+	printf ("    -d --depfile filename - generate Makefile rules for each translation unit\n");
+	printf ("    -x language - pass language parameter to cc when grabbing built-in macros\n");
+}
 
 int main (int args_count, char *args[], char *env[]) {
-
+	const struct option options[] = {
+		{ .name = "depfile", required_argument, 0, 'd' },
+		{ 0 },
+	};
+	const char	*depfile = 0, *lang = "c", *outputfile = 0, *filename = 0;
 	struct bcpp	cbcpp = {0}, *bcpp = &cbcpp;
-	int		success;
+	int			success;
 
-	// test_first_four_preprocessing_stages ();
-	// test_tokenize_stage ();
-	init_bcpp (bcpp, args_count, args, env);
-	// test_bcpp (bcpp, "/Users/jsandsla/Projects/bcpp/test.c");
-	// test_bcpp (bcpp, "test.c");
-	if (args_count > 1) {
-		success = test_bcpp (bcpp, args[1]);
-	} else {
-		success = test_bcpp (bcpp, "main.c");
+	success = 1;
+	while (success && optind < args_count) {
+		int ch;
+
+		if ((ch = getopt_long (args_count, args, "d:x:o:h", options, 0)) >= 0) switch (ch) {
+			case 'd': depfile = optarg; break ;
+			case 'x': lang = optarg; break ;
+			case 'o': outputfile = optarg; break ;
+			case '?': case 'h': usage (args[0]); return 0;
+		} else if (filename) {
+			Error ("only one filename can be specified");
+			success = 0;
+		} else {
+			filename = args[optind];
+			optind += 1;
+		}
 	}
+	if (success) {
+		success = init_bcpp (bcpp, lang, args_count, args, env);
+		if (success) {
+			if (filename) {
+				char	*preprocessed;
 
-	// macro_desc_stress_test (bcpp);
-	// tokenizer_stess_test ();
+				preprocessed = make_translation_unit (bcpp, filename);
+				if (preprocessed) {
+					print_tokens (preprocessed, 0, "", stdout);
+					free_tokens (preprocessed);
+					success = 1;
+				} else {
+					success = 0;
+				}
+			} else {
+				Error ("no file specified");
+				success = 0;
+			}
+		} else {
+			Error ("cannot initialize bcpp");
+		}
+	}
+	if (success) {
+		if (depfile) {
+			FILE	*file = fopen (depfile, "w");
+
+			if (file) {
+				const char	*token;
+
+				token = get_first_token (&bcpp->filecache.filenames);
+				if (token && token[-1]) {
+					const char	*dep;
+
+					if (outputfile) {
+						fprintf (file, "%s: ", outputfile);
+					} else {
+						fprintf (file, "%.*so: ", get_token_length (token) - 1, token);
+					}
+					dep = get_file_dep (&bcpp->filecache, get_token_offset (token));
+					while (dep) {
+						fprintf (file, "%s ", dep);
+						dep = get_next_file_dep (dep);
+					}
+					fprintf (file, "\n");
+					token = next_const_token (token, 0);
+					while (token[-1]) {
+						fprintf (file, "%s: ", token);
+						dep = get_file_dep (&bcpp->filecache, get_token_offset (token));
+						while (dep) {
+							fprintf (file, "%s ", dep);
+							dep = get_next_file_dep (dep);
+						}
+						fprintf (file, "\n");
+						token = next_const_token (token, 0);
+					}
+				} else {
+					Error ("no translation unit file in the file cache");
+				}
+			} else {
+				Error ("cannot open file to write makefile dependencies");
+			}
+		}
+	}
 	return (!success);
 }
 

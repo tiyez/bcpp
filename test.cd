@@ -1,0 +1,2 @@
+test.o: test3.c 
+test3.c: 
