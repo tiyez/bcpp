@@ -105,16 +105,21 @@ int main (int args_count, char *args[], char *env[]) {
 	while (success && optind < args_count) {
 		int ch;
 
-		if ((ch = getopt_long (args_count, args, "d:x:o:h", options, 0)) >= 0) switch (ch) {
-			case 'd': depfile = optarg; break ;
-			case 'x': lang = optarg; break ;
-			case 'o': outputfile = optarg; break ;
-			case '?': case 'h': usage (args[0]); return 0;
+		Debug ("optind: %d", optind);
+		if ((ch = getopt_long (args_count, args, "d:x:o:h", options, 0)) >= 0) {
+			Debug ("ch: %c", ch);
+			switch (ch) {
+				case 'd': depfile = optarg; break ;
+				case 'x': lang = optarg; break ;
+				case 'o': outputfile = optarg; break ;
+				case '?': case 'h': usage (args[0]); return 0;
+			}
 		} else if (filename) {
 			Error ("only one filename can be specified");
 			success = 0;
 		} else {
 			filename = args[optind];
+			Debug ("filename: %s", filename);
 			optind += 1;
 		}
 	}

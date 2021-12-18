@@ -2067,7 +2067,7 @@ int		parse_bcpp_include_paths (struct bcpp *bcpp, const char *source) {
 			break ;
 		}
 		ptr = strstr (source, " (framework directory)");
-		if (ptr < sptr) {
+		if (ptr && ptr < sptr) {
 			is_framework = 1;
 		} else {
 			ptr = sptr;
@@ -2119,13 +2119,15 @@ int		init_bcpp (struct bcpp *bcpp, const char *lang, int args_count, char *args[
 
 		output = read_output_of_program (whereis_location, 1, 2, (char *[]) { (char *) whereis_location, "cc", 0 }, env);
 		if (output) {
-			char	*path = output;
+			char	*path = output, *spath = output;
 
-			while (*path && *path != '\n') {
+			path = strchr (path, '/');
+			while (*path && *path != ' ' && *path != '\n') {
 				path += 1;
 			}
 			*path = 0;
 			path = output;
+			path = strchr (path, '/');
 			output = read_output_of_program (path, 2, 6, (char *[]) { path, "-v", "-pthread", "-xc", "-E", "-", 0 }, env);
 			if (output) {
 				char	*ptr;
@@ -2159,9 +2161,9 @@ int		init_bcpp (struct bcpp *bcpp, const char *lang, int args_count, char *args[
 					success = 0;
 				}
 				end_tokenizer (&bcpp->do_not_include_those, 0);
-				free (path);
+				free (spath);
 			} else {
-				free (path);
+				free (spath);
 				success = 0;
 			}
 		} else {
