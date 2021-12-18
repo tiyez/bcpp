@@ -53,9 +53,7 @@ int		execute_program (const char *program_path, int read_from_fd, const char *in
 
 #if defined OS_LINUX || defined OS_APPLE || defined OS_UNIX
 #	include <unistd.h>
-#	if defined OS_LINUX
-#		include <sys/wait.h>
-#	endif
+#	include <sys/wait.h>
 #else
 #	error There is no implementation of systemutil for this OS
 #endif
