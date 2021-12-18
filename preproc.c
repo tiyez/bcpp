@@ -54,9 +54,17 @@ struct macro_desc {
 	struct position	pos;
 };
 
+enum {
+	Content_Start,
+	Content_End,
+	Content_Deps,
+	Content_Newlines,
+	Content_Count,
+};
+
 struct filecache {
 	struct tokenizer	filenames;
-	const char			*(*contents)[3];
+	const char			*(*contents)[Content_Count];
 	usize				contents_count;
 	usize				contents_cap;
 	char				*deps;
@@ -85,6 +93,8 @@ struct bcpp {
 
 #include "expr.c"
 
+const char	*get_next_file_dep (const char *dep);
+
 int		add_file_dep (struct filecache *cache, int index, const char *filename, usize size) {
 	int		success;
 
@@ -94,6 +104,7 @@ int		add_file_dep (struct filecache *cache, int index, const char *filename, usi
 		memory = expand_array (cache->deps, &cache->deps_cap);
 		if (memory) {
 			cache->deps = memory;
+			Assert ((cache->deps_size + sizeof (void *) + size + 1) < cache->deps_cap);
 			success = 1;
 		} else {
 			Error ("cannot allocate memory for file dependency tracker");
@@ -103,26 +114,29 @@ int		add_file_dep (struct filecache *cache, int index, const char *filename, usi
 		success = 1;
 	}
 	if (success) {
-		*(void **) (cache->deps + cache->deps_size) = (void *) cache->contents[index][2];
+		void	*old = (void *) cache->contents[index][Content_Deps];
+
+		*(void **) (cache->deps + cache->deps_size) = old;
 		cache->deps_size += sizeof (void *);
-		cache->contents[index][2] = cache->deps + cache->deps_size;
+		cache->contents[index][Content_Deps] = cache->deps + cache->deps_size;
 		memcpy (cache->deps + cache->deps_size, filename, size);
-		cache->deps_size += size;
-		cache->deps[cache->deps_size] = 0;
-		cache->deps_size += 1;
+		cache->deps[cache->deps_size + size] = 0;
+		Debug ("DEP ADDED FOR %d %zu: %p -> %p %s", index, size, get_next_file_dep (cache->deps + cache->deps_size), cache->deps + cache->deps_size, cache->deps + cache->deps_size);
+		cache->deps_size += size + 1;
 	}
 	return (success);
 }
 
 const char	*get_file_dep (struct filecache *cache, int index) {
-	return (cache->contents[index][2]);
+	return (cache->contents[index][Content_Deps]);
 }
 
 const char	*get_next_file_dep (const char *dep) {
+	Debug ("next dep ptr: %p -> %p", dep, *(void **) (dep - sizeof (void *)));
 	return (*(void **) (dep - sizeof (void *)));
 }
 
-int		add_file_to_cache (struct filecache *cache, const char *filename, const char *content, usize size) {
+int		add_file_to_cache (struct filecache *cache, const char *filename, char *content, usize size, int *pindex) {
 	int		success;
 
 	if ((cache->contents_count + 1) * sizeof *cache->contents >= cache->contents_cap) {
@@ -140,18 +154,26 @@ int		add_file_to_cache (struct filecache *cache, const char *filename, const cha
 		success = 1;
 	}
 	if (success) {
-		cache->contents[cache->contents_count][0] = content;
-		cache->contents[cache->contents_count][1] = content + size;
-		cache->contents[cache->contents_count][2] = 0;
+		int		*nl_array;
+
+		size = preprocess_text (content, content + size, &nl_array);
+		cache->contents[cache->contents_count][Content_Start] = content;
+		cache->contents[cache->contents_count][Content_End] = content + size;
+		cache->contents[cache->contents_count][Content_Deps] = 0;
+		cache->contents[cache->contents_count][Content_Newlines] = (const char *) nl_array;
 		cache->contents_count += 1;
-		cache->contents[cache->contents_count][0] = 0;
-		cache->contents[cache->contents_count][1] = 0;
-		cache->contents[cache->contents_count][2] = 0;
+		cache->contents[cache->contents_count][Content_Start] = 0;
+		cache->contents[cache->contents_count][Content_End] = 0;
+		cache->contents[cache->contents_count][Content_Deps] = 0;
+		cache->contents[cache->contents_count][Content_Newlines] = 0;
 		if (cache->filenames.current) {
 			success = revert_token (&cache->filenames);
 		}
 		success = success && push_string_token (&cache->filenames, cache->contents_count - 1, filename, strlen (filename), 0);
 		success = success && end_tokenizer (&cache->filenames, 0);
+		if (success) {
+			*pindex = cache->contents_count - 1;
+		}
 	}
 	return (success);
 }
@@ -176,53 +198,58 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 
 int		push_line_directive (struct tokenizer *tokenizer, const char *path, int line);
 
-int		add_content_to_translation_unit (struct bcpp *bcpp, struct tokenizer *tokenizer, char *content, usize size, const char *filename) {
+int		add_content_to_translation_unit (struct bcpp *bcpp, struct tokenizer *tokenizer, char *content, usize size, int *newline_array, const char *filename) {
 	char	*tokens;
-	int		*newline_array;
 	int		success;
 
-	preprocess_text (content, content + size, &newline_array);
-	if (content) {
-		tokens = tokenize (content, newline_array, 1, filename);
-		free (newline_array);
-		newline_array = 0;
-		if (tokens) {
-			success = push_line_directive (tokenizer, filename, 1);
-			if (success) {
-				struct position		cpos = {
-					.filename = filename,
-					.line = 1,
-					.column = 1,
-					.at_the_beginning = 1,
-				}, *pos = &cpos;
+	tokens = tokenize (content, newline_array, 1, filename);
+	if (tokens) {
+		success = push_line_directive (tokenizer, filename, 1);
+		if (success) {
+			struct position		cpos = {
+				.filename = filename,
+				.line = 1,
+				.column = 1,
+				.at_the_beginning = 1,
+			}, *pos = &cpos;
 
-				success = evaluate_directives (bcpp, tokenizer, tokens, pos, 1);
-				free_tokens (tokens);
-				tokens = 0;
-			}
-		} else {
-			Error ("no tokens");
-			success = 0;
+			success = evaluate_directives (bcpp, tokenizer, tokens, pos, 1);
+			free_tokens (tokens);
+			tokens = 0;
 		}
 	} else {
-		Error ("no content");
+		Error ("no tokens");
 		success = 0;
 	}
 	return (success);
 }
 
-char	*load_file_content (struct filecache *cache, const char *filename, usize *size) {
+char	*load_file_content (struct filecache *cache, const char *filename, usize *psize, int **nl_array) {
 	char	*content;
 	int		cache_index;
 
 	cache_index = get_file_cache_index (cache, filename);
 	if (cache_index >= 0) {
-		content = (char *) cache->contents[cache_index][0];
-		*size = cache->contents[cache_index][1] - content;
+		content = (char *) cache->contents[cache_index][Content_Start];
+		if (psize) {
+			*psize = cache->contents[cache_index][Content_End] - content;
+		}
+		if (nl_array) {
+			*nl_array = (int *) cache->contents[cache_index][Content_Newlines];
+		}
 	} else {
-		content = read_entire_file (filename, size);
+		usize	size;
+
+		content = read_entire_file (filename, &size);
 		if (content) {
-			if (!add_file_to_cache (cache, filename, content, *size)) {
+			if (add_file_to_cache (cache, filename, content, size, &cache_index)) {
+				if (psize) {
+					*psize = cache->contents[cache_index][Content_End] - content;
+				}
+				if (nl_array) {
+					*nl_array = (int *) cache->contents[cache_index][Content_Newlines];
+				}
+			} else {
 				free (content);
 				content = 0;
 			}
@@ -235,10 +262,11 @@ int		add_file_to_translation_unit (struct bcpp *bcpp, struct tokenizer *tokenize
 	usize	size;
 	char	*content;
 	int		success;
+	int		*nl_array;
 
-	content = load_file_content (&bcpp->filecache, filename, &size);
+	content = load_file_content (&bcpp->filecache, filename, &size, &nl_array);
 	if (content) {
-		success = add_content_to_translation_unit (bcpp, tokenizer, content, size, filename);
+		success = add_content_to_translation_unit (bcpp, tokenizer, content, size, nl_array, filename);
 	} else {
 		success = 0;
 	}
@@ -251,7 +279,7 @@ char	*make_translation_unit (struct bcpp *bcpp, const char *filename) {
 	int		success;
 	struct tokenizer	ctokenizer = {0}, *tokenizer = &ctokenizer;
 
-	success = add_content_to_translation_unit (bcpp, tokenizer, bcpp->predefined, bcpp->predefined_size, "<predefined>");
+	success = add_content_to_translation_unit (bcpp, tokenizer, bcpp->predefined, bcpp->predefined_size, (int []) {0}, "<predefined>");
 	if (success) {
 		if (!add_file_to_translation_unit (bcpp, tokenizer, filename)) {
 			Error ("cannot add file to the translation unit of '%s'", filename);
@@ -396,8 +424,8 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 						if (found) {
 							usize	length = 0;
 
-							length = stpncpy (framework, path, sptr - path) - framework;
-							length = stpcpy (framework, "/Frameworks/") - framework;
+							length = stpncpy (framework + length, path, sptr - path) - framework;
+							length = stpcpy (framework + length, "/Frameworks/") - framework;
 							if (check_file_access (framework, Access_Mode_read)) {
 								if (bcpp->frameworks_count < Array_Count (bcpp->frameworks)) {
 									bcpp->frameworks[bcpp->frameworks_count] = framework;
@@ -429,7 +457,7 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					if (success) {
 						int		cache_index;
 
-						cache_index = get_file_cache_index (&bcpp->filecache, filename);
+						cache_index = get_file_cache_index (&bcpp->filecache, pos->filename);
 						if (cache_index >= 0) {
 							success = add_file_dep (&bcpp->filecache, cache_index, path, strlen (path));
 						}
@@ -477,14 +505,11 @@ int		include_file_relative (struct bcpp *bcpp, struct tokenizer *tokenizer, cons
 			if (success) {
 				success = add_file_to_translation_unit (bcpp, tokenizer, path);
 				if (success) {
-					success = add_file_to_translation_unit (bcpp, tokenizer, path);
-					if (success) {
-						int		cache_index;
+					int		cache_index;
 
-						cache_index = get_file_cache_index (&bcpp->filecache, relative_from);
-						if (cache_index >= 0) {
-							success = add_file_dep (&bcpp->filecache, cache_index, path, strlen (path));
-						}
+					cache_index = get_file_cache_index (&bcpp->filecache, relative_from);
+					if (cache_index >= 0) {
+						success = add_file_dep (&bcpp->filecache, cache_index, path, strlen (path));
 					}
 				}
 			}
@@ -2041,11 +2066,12 @@ int		parse_bcpp_include_paths (struct bcpp *bcpp, const char *source) {
 		if (!ptr) {
 			break ;
 		}
-		ptr = strnstr (source, " (framework directory)", ptr - source);
-		if (ptr) {
+		ptr = strstr (source, " (framework directory)");
+		if (ptr < sptr) {
 			is_framework = 1;
 		} else {
 			ptr = sptr;
+			is_framework = 0;
 		}
 		if (ptr - source > 0) {
 			success = push_string_token (&bcpp->include_paths, is_framework * Is_Framework_Includepath_Flag, source, ptr - source, 0);

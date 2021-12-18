@@ -38,7 +38,7 @@ int		push_newline (struct newline_array *array, int line) {
 	return (result);
 }
 
-void	preprocess_text (char *content, char *end, int **nl_array) {
+usize	preprocess_text (char *content, char *end, int **nl_array) {
 	char	*read = content, *write = content;
 	struct newline_array	cnewline_array = {0}, *newline_array = &cnewline_array;
 	int		line = 1;
@@ -128,6 +128,7 @@ void	preprocess_text (char *content, char *end, int **nl_array) {
 	*write = 0;
 	push_newline (newline_array, 0);
 	*nl_array = newline_array->data;
+	return (write - content);
 }
 
 #ifndef Without_Tests

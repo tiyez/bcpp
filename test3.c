@@ -1,7 +1,8 @@
 
-
+// #if BYPASS
 #include <stdio.h>
 #include <string.h>
+// #endif
 
 int main () {
 	const char	*filename = "main.c";

@@ -29,7 +29,7 @@
 
 
 
-void	tokenizer_stess_test (void) {
+void	tokenizer_stress_test (void) {
 	struct tokenizer	temp_tokenizer = {0}, *tokenizer = &temp_tokenizer;
 	int		success;
 	usize	index;
@@ -101,7 +101,7 @@ int main (int args_count, char *args[], char *env[]) {
 	struct bcpp	cbcpp = {0}, *bcpp = &cbcpp;
 	int			success;
 
-	success = 1;
+	success = optind < args_count;
 	while (success && optind < args_count) {
 		int ch;
 
@@ -167,6 +167,7 @@ int main (int args_count, char *args[], char *env[]) {
 						fprintf (file, "%s: ", token);
 						dep = get_file_dep (&bcpp->filecache, get_token_offset (token));
 						while (dep) {
+							Debug ("dep: %p %s", dep, dep);
 							fprintf (file, "%s ", dep);
 							dep = get_next_file_dep (dep);
 						}
