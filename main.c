@@ -99,6 +99,7 @@ int main (int args_count, char *args[], char *env[]) {
 	};
 	const char	*depfile = 0, *lang = "c", *outputfile = 0, *filename = 0;
 	struct bcpp	cbcpp = {0}, *bcpp = &cbcpp;
+	struct tokenizer	cuserincludes = {0}, *userincludes = &cuserincludes;
 	int			success;
 
 	success = optind < args_count;
@@ -106,12 +107,19 @@ int main (int args_count, char *args[], char *env[]) {
 		int ch;
 
 		Debug ("optind: %d", optind);
-		if ((ch = getopt_long (args_count, args, "d:x:o:h", options, 0)) >= 0) {
+		if ((ch = getopt_long (args_count, args, "d:x:o:I:h", options, 0)) >= 0) {
 			Debug ("ch: %c", ch);
 			switch (ch) {
 				case 'd': depfile = optarg; break ;
 				case 'x': lang = optarg; break ;
 				case 'o': outputfile = optarg; break ;
+				case 'I': {
+					if (userincludes->current) {
+						success = revert_token (userincludes);
+					}
+					success = success && push_string_token (userincludes, 0, optarg, strlen (optarg), 0);
+					success = success && end_tokenizer (userincludes, 0);
+				} break ;
 				case '?': case 'h': usage (args[0]); return 0;
 			}
 		} else if (filename) {
@@ -125,6 +133,7 @@ int main (int args_count, char *args[], char *env[]) {
 	}
 	if (success) {
 		success = init_bcpp (bcpp, lang, args_count, args, env);
+		bcpp->userincludes = cuserincludes;
 		if (success) {
 			if (filename) {
 				char	*preprocessed;

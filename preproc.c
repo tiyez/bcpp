@@ -76,6 +76,7 @@ struct bcpp {
 	const char			**include_paths_sorted;
 	struct tokenizer	include_paths;
 	struct tokenizer	do_not_include_those;
+	struct tokenizer	userincludes;
 	struct filecache	filecache;
 	char				*predefined;
 	usize				predefined_size;
@@ -455,6 +456,28 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					}
 					index += 1;
 				}
+			}
+		}
+		if (success && !found) {
+			const char	*include;
+
+			include = get_first_token (&bcpp->userincludes);
+			if (include) while (success && include[-1]) {
+				usize	length = get_token_length (include);
+
+				strcpy (path, include);
+				if (path[length - 1] != '/') {
+					path[length] = '/';
+					length += 1;
+				}
+				length = stpcpy (path + length, filename) - path;
+				path[length] = 0;
+				found = check_file_access (path, Access_Mode_read);
+				success = 1;
+				if (success && found) {
+					break ;
+				}
+				include = next_const_token (include, 0);
 			}
 		}
 		if (found) {
