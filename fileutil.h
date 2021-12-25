@@ -17,6 +17,8 @@ char	*read_entire_file (const char *filename, usize *size);
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #ifdef Option_fileutil_Open_Binary
 #	define Open_File_Mode "rb"
@@ -25,31 +27,30 @@ char	*read_entire_file (const char *filename, usize *size);
 #endif
 
 char	*read_entire_file (const char *filename, usize *psize) {
-	FILE	*file;
+	int		fd;
 	usize	size;
 	char	*result;
 
-	file = fopen (filename, Open_File_Mode);
-	if (file) {
-		fseek (file, 0, SEEK_END);
-		size = ftell (file);
-		fseek (file, 0, SEEK_SET);
+	fd = open (filename, O_RDONLY);
+	if (fd >= 0) {
+		size = lseek (fd, 0, SEEK_END);
+		lseek (fd, 0, SEEK_SET);
 		if (size > 0) {
 			result = malloc (size + 1);
 			if (result) {
-				if (0 < fread (result, 1, size, file)) {
+				if (0 < read (fd, result, size)) {
 					result[size] = 0;
 					if (psize) {
 						*psize = size;
 					}
 				} else {
-					Error ("cannot read file '%s'", filename);
+					Error ("cannot read fd '%s'", filename);
 					free (result);
 					result = 0;
 					*psize = 0;
 				}
 			} else {
-				Error ("cannot allocate memory to read file '%s'", filename);
+				Error ("cannot allocate memory to read fd '%s'", filename);
 				*psize = 0;
 			}
 		} else {
@@ -61,10 +62,10 @@ char	*read_entire_file (const char *filename, usize *psize) {
 				Error ("cannot allocate one byte memory");
 			}
 		}
-		fclose (file);
-		file = 0;
+		close (fd);
+		fd = 0;
 	} else {
-		Error ("cannot open file '%s'", filename);
+		Error ("cannot open fd '%s'", filename);
 		result = 0;
 		*psize = 0;
 	}
