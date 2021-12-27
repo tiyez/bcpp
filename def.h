@@ -45,7 +45,7 @@ do {fprintf (stderr, "%s:%d:%d: System Error at %s:%d:", (pos)->filename, (pos)-
 } while (0)
 
 #define Error_Message(pos, ...) \
-do {fprintf (stderr, "%s:%d:%d: Error: ", (pos)->filename, (pos)->line, (pos)->column);\
+if (pos) do {fprintf (stderr, "%s:%d:%d: Error: ", (pos)->filename, (pos)->line, (pos)->column);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
 } while (0)

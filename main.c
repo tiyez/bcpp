@@ -1,5 +1,5 @@
 
-#define Release
+// #define Release
 
 
 #include <stdio.h>
