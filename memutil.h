@@ -87,6 +87,10 @@ inline void		*expand_array (void *array, usize *size) {
 	return (new_array);
 }
 
+inline void		release_array (void *array) {
+	free (array);
+}
+
 #endif /* Header_memutil */
 
 
@@ -98,5 +102,6 @@ usize	to_page_size (usize val);
 usize	get_aligned_value (usize value, usize alignment);
 usize	get_alignment_diff (usize value, usize alignment);
 void	*expand_array (void *array, usize *size);
+void	release_array (void *array);
 
 #endif /* defined(Memutil_Implementation) || defined(All_Implementation) */

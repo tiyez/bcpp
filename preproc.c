@@ -1387,7 +1387,7 @@ int		evaluate_defined_operator (struct bcpp *bcpp, struct tokenizer *tokenizer, 
 			}
 		}
 	} else {
-		Error_Message (pos, "invalid operand for 'defined' operator [%s;%s]", get_token_name (tokens), tokens);
+		Error_Message (pos, "invalid operand for 'defined' operator [%s;%s]", get_token_name (tokens[-1]), tokens);
 		success = 0;
 	}
 	*ptokens = tokens;

@@ -12,6 +12,7 @@
 	2 byte: token length (0 - 65535, same as first byte)
 
 */
+#define Token(name) Token_##name
 #define Token_Header_Size 4
 #define Token_Footer_Size 3
 #define Calc_Token_Size(value_length) (Token_Header_Size + (value_length) + Token_Footer_Size)
@@ -19,14 +20,13 @@
 /* 
 	token page format
 
-	token link: pointer to next page
-	token link: pointer to prev page
-	content tokens <- data pointer
-	token link: pointer to next page
+	token link: 2 pointers: 1. pointer to next page, 2. pointer to last token from prev page
+	content tokens
+	token link: 2 pointers: 1. pointer to next page, 2. pointer to this page.
 
 */
-#define Token_Page_Header_Size (2 * Calc_Token_Size (sizeof (void *)))
-#define Token_Page_Footer_Size Calc_Token_Size (sizeof (void *))
+#define Token_Page_Header_Size Calc_Token_Size (sizeof (void *) * 2)
+#define Token_Page_Footer_Size Calc_Token_Size (sizeof (void *) * 3)
 
 struct tokenizer {
 	char	*start_data;
@@ -34,20 +34,19 @@ struct tokenizer {
 	usize	size;
 	usize	cap;
 	char	*current;
-	char	*prev;
 };
 
 enum token {
-	Token_eof,
-	Token_newline,
-	Token_identifier,
-	Token_preprocessing_number,
-	Token_punctuator,
-	Token_string,
-	Token_character,
-	Token_path_global,
-	Token_path_relative,
-	Token_link,
+	Token (eof),
+	Token (newline),
+	Token (identifier),
+	Token (preprocessing_number),
+	Token (punctuator),
+	Token (string),
+	Token (character),
+	Token (path_global),
+	Token (path_relative),
+	Token (link),
 };
 
 struct position {
@@ -58,21 +57,21 @@ struct position {
 };
 
 int		is_string_token (int token) {
-	return (token >= Token_string && token <= Token_path_relative);
+	return (token >= Token (string) && token <= Token (path_relative));
 }
 
-const char	*get_token_name (const char *token) {
-	switch (token[-1]) {
-		case Token_eof: return "Token_eof";
-		case Token_newline: return "Token_newline";
-		case Token_identifier: return "Token_identifier";
-		case Token_preprocessing_number: return "Token_preprocessing_number";
-		case Token_punctuator: return "Token_punctuator";
-		case Token_string: return "Token_string";
-		case Token_character: return "Token_character";
-		case Token_path_global: return "Token_path_global";
-		case Token_path_relative: return "Token_path_relative";
-		case Token_link: return "Token_link";
+const char	*get_token_name (int token) {
+	switch (token) {
+		case Token (eof): return "Token (eof)";
+		case Token (newline): return "Token (newline)";
+		case Token (identifier): return "Token (identifier)";
+		case Token (preprocessing_number): return "Token (preprocessing_number)";
+		case Token (punctuator): return "Token (punctuator)";
+		case Token (string): return "Token (string)";
+		case Token (character): return "Token (character)";
+		case Token (path_global): return "Token (path_global)";
+		case Token (path_relative): return "Token (path_relative)";
+		case Token (link): return "Token (link)";
 	}
 	return "<invalid token>";
 }
@@ -91,7 +90,7 @@ void	push_tokenizer_2bytes (struct tokenizer *tokenizer, int value) {
 	push_tokenizer_byte (tokenizer, value & 0xFF);
 }
 
-void	push_tokenizer_bytes (struct tokenizer *tokenizer, void *bytes, usize length) {
+void	push_tokenizer_bytes (struct tokenizer *tokenizer, const void *bytes, usize length) {
 	memcpy (tokenizer->data + tokenizer->size, bytes, length);
 	tokenizer->size += length;
 }
@@ -102,12 +101,12 @@ void	push_token_header (struct tokenizer *tokenizer, int length, int offset, int
 	push_tokenizer_byte (tokenizer, type);
 }
 
-void	push_token_footer (struct tokenizer *tokenizer, int length, int offset, int type) {
+void	push_token_footer (struct tokenizer *tokenizer, int length) {
 	push_tokenizer_byte (tokenizer, 0);
 	push_tokenizer_2bytes (tokenizer, length);
 }
 
-void	*push_token_bytes (struct tokenizer *tokenizer, int offset, int type, void *ptr, usize length) {
+void	*push_token_bytes (struct tokenizer *tokenizer, int offset, int type, const void *ptr, usize length) {
 	void	*token;
 
 	push_token_header (tokenizer, length, offset, type);
@@ -121,23 +120,28 @@ int		prepare_tokenizer (struct tokenizer *tokenizer, usize tofit) {
 	int		success;
 
 	/* todo: can fail when tofit > Memory_Page */
-	if (tokenizer->size + tofit + Calc_Token_Size (sizeof (void *)) > tokenizer->cap) {
-		void	*memory, empty_ptr = 0, prev_memory;
+	if (tokenizer->size + tofit + Token_Page_Footer_Size > tokenizer->cap) {
+		void	*memory;
 
+		Assert (tokenizer->size + Token_Page_Footer_Size <= tokenizer->cap);
 		memory = expand_array (0, &tokenizer->cap);
 		if (memory) {
+			void	*last_token = 0, *pointers[2];
+
 			if (!tokenizer->start_data) {
 				tokenizer->start_data = memory;
 			}
 			if (tokenizer->data) {
-				*(void **) tokenizer->data = memory;
-				push_token_bytes (tokenizer, 0, Token_link, &memory, sizeof memory);
+				void	*pointers[3] = { memory, tokenizer->data, (void *) tokenizer->size };
+
+				*(void **) (tokenizer->data + Token_Header_Size) = memory;
+				last_token = push_token_bytes (tokenizer, 0, Token (link), pointers, sizeof pointers);
 			}
-			prev_memory = tokenizer->data;
+			pointers[0] = 0;
+			pointers[1] = last_token;
 			tokenizer->data = memory;
 			tokenizer->size = 0;
-			push_token_bytes (tokenizer, 0, Token_link, &empty_ptr, sizeof empty_ptr);
-			push_token_bytes (tokenizer, 0, Token_link, &prev_memory, sizeof prev_memory);
+			tokenizer->current = push_token_bytes (tokenizer, 0, Token (link), &pointers, sizeof pointers);
 			Assert (tokenizer->size == Token_Page_Header_Size);
 			success = 1;
 		} else {
@@ -193,14 +197,14 @@ int		push_token (struct tokenizer *tokenizer, int offset, int token, const char 
 int		push_newline_token (struct tokenizer *tokenizer, int offset) {
 	int		success;
 
-	if (tokenizer->current && tokenizer->current[-1] == Token_newline && (unsigned char) tokenizer->current[0] < 0xff) {
-		*(unsinged char *) tokenizer->current += 1;
+	if (tokenizer->current && tokenizer->current[-1] == Token (newline) && (unsigned char) tokenizer->current[0] < 0xff) {
+		*(unsigned char *) tokenizer->current += 1;
 		success = 1;
 	} else {
 		if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (1)))) {
 			int		value = 0;
 
-			tokenizer->current = push_token_bytes (tokenizer, offset, Token_newline, &value, 1);
+			tokenizer->current = push_token_bytes (tokenizer, offset, Token (newline), &value, 1);
 		}
 	}
 	return (success);
@@ -221,7 +225,7 @@ int		push_compiled_newline_token (struct tokenizer *tokenizer, int count, int of
 int		push_string_token (struct tokenizer *tokenizer, int offset, const char *string, usize length, int push_at_existing) {
 	int		success;
 
-	if (push_at_existing && tokenizer->current && tokenizer->current[-1] == Token_string) {
+	if (push_at_existing && tokenizer->current && tokenizer->current[-1] == Token (string)) {
 		int		old_length = get_token_length (tokenizer->current);
 
 		tokenizer->size -= Token_Footer_Size;
@@ -234,13 +238,7 @@ int		push_string_token (struct tokenizer *tokenizer, int offset, const char *str
 			Assert (get_token_length (tokenizer->current) == (int) length);
 		}
 	} else if ((success = prepare_tokenizer (tokenizer, length + 6))) {
-		push_tokenizer_2bytes (tokenizer, length);
-		push_tokenizer_2bytes (tokenizer, offset);
-		push_tokenizer_byte (tokenizer, Token_string);
-		tokenizer->prev = tokenizer->current;
-		tokenizer->current = tokenizer->data + tokenizer->size;
-		push_tokenizer_bytes (tokenizer, (void *) string, length);
-		push_tokenizer_byte (tokenizer, 0);
+		tokenizer->current = push_token_bytes (tokenizer, offset, Token (string), string, length);
 		Assert (get_token_length (tokenizer->current) >= 0);
 	}
 	return (success);
@@ -250,7 +248,7 @@ const char	*next_const_token (const char *tokens, struct position *pos) {
 	const char	*old = tokens;
 
 	if (pos) {
-		if (tokens[-1] == Token_newline) {
+		if (tokens[-1] == Token (newline)) {
 			pos->line += tokens[0];
 			pos->column = 1;
 			pos->at_the_beginning = 1;
@@ -262,20 +260,17 @@ const char	*next_const_token (const char *tokens, struct position *pos) {
 	int length = get_token_length (tokens);
 	tokens += length;
 	Assert (*tokens == 0);
-	tokens += 1; /* skip null-term */
-	tokens += 2; /* skip length */
-	tokens += 2; /* skip offset */
-	tokens += 1; /* skip token kind */
-	if (tokens[-1] == Token_link) {
+	tokens += Token_Footer_Size;
+	tokens += Token_Header_Size;
+	if (tokens[-1] == Token (link)) {
 		void	*memory = *(void **) tokens;
 
 		tokens = memory;
-		tokens += sizeof memory; /* skip next data pointer */
-		tokens += 2; /* skip length */
-		tokens += 2; /* skip offset */
-		tokens += 1; /* skip token kind */
+		Assert (tokens);
+		tokens += Token_Page_Header_Size;
+		tokens += Token_Header_Size;
 	}
-	if (pos && tokens[-1] != Token_newline) {
+	if (pos && tokens[-1] != Token (newline)) {
 		pos->column += get_token_offset (tokens);
 	}
 	return (tokens);
@@ -403,12 +398,7 @@ int		end_tokenizer (struct tokenizer *tokenizer, int offset) {
 	int		success;
 
 	if ((success = tokenizer->cap - tokenizer->size >= 6 || prepare_tokenizer (tokenizer, 6))) {
-		push_tokenizer_2bytes (tokenizer, 0);
-		push_tokenizer_2bytes (tokenizer, offset);
-		push_tokenizer_byte (tokenizer, Token_eof);
-		tokenizer->prev = tokenizer->current;
-		tokenizer->current = tokenizer->data + tokenizer->size;
-		push_tokenizer_byte (tokenizer, 0);
+		tokenizer->current = push_token_bytes (tokenizer, offset, Token (eof), 0, 0);
 	}
 	return (success);
 }
@@ -465,7 +455,7 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 			content += 1;
 		} while (isalnum (*content) || *content == '_');
 		state->column += content - start;
-		push_token (tokenizer, state->offset, Token_identifier, start, content - start);
+		push_token (tokenizer, state->offset, Token (identifier), start, content - start);
 		state->offset = 0;
 		state->its_include = 0;
 		if (state->check_include && (0 == strncmp (start, "include", content - start) || 0 == strncmp (start, "import", content - start))) {
@@ -479,7 +469,7 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		do {
 			content += 1 + ((*content == 'e' || *content == 'E' || *content == 'p' || *content == 'P') && (content[1] == '+' || content[1] == '-'));
 		} while (isalnum (*content) || *content == '_' || *content == '.');
-		push_token (tokenizer, state->offset, Token_preprocessing_number, start, content - start);
+		push_token (tokenizer, state->offset, Token (preprocessing_number), start, content - start);
 		state->offset = 0;
 		state->column += content - start;
 		state->check_include = 0; state->its_include = 0;
@@ -519,11 +509,11 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		if (success) {
 			success = push_string_token (tokenizer, state->offset, buffer_memory, buffer - buffer_memory, pushed);
 			if (end_symbol == '\'') {
-				tokenizer->current[-1] = Token_character;
+				tokenizer->current[-1] = Token (character);
 			} else if (end_symbol == '>') {
-				tokenizer->current[-1] = Token_path_global;
+				tokenizer->current[-1] = Token (path_global);
 			} else if (state->its_include) {
-				tokenizer->current[-1] = Token_path_relative;
+				tokenizer->current[-1] = Token (path_relative);
 			}
 			content += 1;
 		}
@@ -549,27 +539,27 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 			string += 1;
 		}
 		state->check_include = 0; state->its_include = 0;
-		if (length == 1 && *content == '#' && ((tokenizer->current && tokenizer->current[-1] == Token_newline) || !tokenizer->current)) {
+		if (length == 1 && *content == '#' && ((tokenizer->current && tokenizer->current[-1] == Token (newline)) || !tokenizer->current)) {
 			state->check_include = 1;
 		}
 		if (length == 2 && (*content == '<' || *content == '%' || *content == ':')) {
 			if (0 == strncmp (content, "<%", 2)) {
-				push_token (tokenizer, state->offset, Token_punctuator, "{", 1);
+				push_token (tokenizer, state->offset, Token (punctuator), "{", 1);
 			} else if (0 == strncmp (content, "%>", 2)) {
-				push_token (tokenizer, state->offset, Token_punctuator, "}", 1);
+				push_token (tokenizer, state->offset, Token (punctuator), "}", 1);
 			} else if (0 == strncmp (content, "<:", 2)) {
-				push_token (tokenizer, state->offset, Token_punctuator, "[", 1);
+				push_token (tokenizer, state->offset, Token (punctuator), "[", 1);
 			} else if (0 == strncmp (content, ":>", 2)) {
-				push_token (tokenizer, state->offset, Token_punctuator, "]", 1);
+				push_token (tokenizer, state->offset, Token (punctuator), "]", 1);
 			} else if (0 == strncmp (content, "%:", 2)) {
-				push_token (tokenizer, state->offset, Token_punctuator, "#", 1);
+				push_token (tokenizer, state->offset, Token (punctuator), "#", 1);
 			} else {
-				push_token (tokenizer, state->offset, Token_punctuator, content, length);
+				push_token (tokenizer, state->offset, Token (punctuator), content, length);
 			}
 		} else if (length == 4 && 0 == strncmp (content, "%:%:", 4)) {
-			push_token (tokenizer, state->offset, Token_punctuator, "##", 2);
+			push_token (tokenizer, state->offset, Token (punctuator), "##", 2);
 		} else {
-			push_token (tokenizer, state->offset, Token_punctuator, content, length);
+			push_token (tokenizer, state->offset, Token (punctuator), content, length);
 		}
 		state->column += length;
 		state->offset = 0;
@@ -583,20 +573,56 @@ int		revert_token (struct tokenizer *tokenizer) {
 	int		success;
 
 	/* TODO: fix inter-paged revert case */
-	if (tokenizer->prev) {
-		if (tokenizer->current[-1] == Token_newline) {
-			tokenizer->size -= 2;
+	if (tokenizer->current) {
+		const char	*token = tokenizer->current;
+		int			length, drop_length;
+
+		drop_length = get_token_length (token);
+		token -= Token_Header_Size;
+		token -= 2;
+		length = token[0];
+		length += token[1] << 8;
+		token -= 1;
+		Assert (*token == 0);
+		token -= length;
+		if (token[-1] == Token (link)) {
+			const char	*last_token;
+
+			Assert (*(void **) token == 0);
+			last_token = *((void **) token + 1);
+			if (last_token) {
+				Assert (last_token[-1] == Token (link));
+				release_array (*(void **) last_token);
+				*(void **) last_token = 0;
+				length = get_token_length (last_token);
+				Assert (length == sizeof (void *) * 3);
+				tokenizer->data = *((void **) last_token + 1);
+				tokenizer->size = (usize) *((void **) last_token + 2);
+				token = last_token;
+				token -= Token_Header_Size;
+				token -= 2;
+				length = token[0];
+				length += token[1] << 8;
+				token -= 1;
+				Assert (*token == 0);
+				token -= length;
+				tokenizer->current = (char *) token;
+				if (token[-1] == Token (link)) {
+					tokenizer->current = (char *) last_token;
+					success = revert_token (tokenizer);
+				} else {
+					success = 1;
+				}
+			} else {
+				release_array (tokenizer->data);
+				memset (tokenizer, 0, sizeof *tokenizer);
+				success = 1;
+			}
 		} else {
-			tokenizer->size -= get_token_length (tokenizer->current) + 1;
+			tokenizer->current = (char *) token;
+			tokenizer->size -= Calc_Token_Size (drop_length);
+			success = 1;
 		}
-		tokenizer->size -= 5;
-		tokenizer->current = tokenizer->prev;
-		tokenizer->prev = 0;
-		success = 1;
-	} else if (tokenizer->current) {
-		tokenizer->size = sizeof (void *);
-		tokenizer->current = 0;
-		success = 1;
 	} else {
 		success = 1;
 	}
@@ -652,7 +678,7 @@ char	*tokenize_with (struct tokenizer *tokenizer, const char *content, int *nl_a
 		success = make_token (tokenizer, &state, &content);
 	}
 	if (success) {
-		if (ensure_nl_at_end && tokenizer->current && tokenizer->current[-1] != Token_newline) {
+		if (ensure_nl_at_end && tokenizer->current && tokenizer->current[-1] != Token (newline)) {
 			success = push_newline_token (tokenizer, state.offset);
 			state.offset = 0;
 		}
@@ -697,10 +723,10 @@ int		get_open_string (int tkn) {
 	int		result = 0;
 
 	switch (tkn) {
-		case Token_string: result = '\"'; break ;
-		case Token_character: result = '\''; break ;
-		case Token_path_global: result = '<'; break ;
-		case Token_path_relative: result = '\"'; break ;
+		case Token (string): result = '\"'; break ;
+		case Token (character): result = '\''; break ;
+		case Token (path_global): result = '<'; break ;
+		case Token (path_relative): result = '\"'; break ;
 	}
 	return (result);
 }
@@ -709,10 +735,10 @@ int		get_close_string (int tkn) {
 	int		result = 0;
 
 	switch (tkn) {
-		case Token_string: result = '\"'; break ;
-		case Token_character: result = '\''; break ;
-		case Token_path_global: result = '>'; break ;
-		case Token_path_relative: result = '\"'; break ;
+		case Token (string): result = '\"'; break ;
+		case Token (character): result = '\''; break ;
+		case Token (path_global): result = '>'; break ;
+		case Token (path_relative): result = '\"'; break ;
 	}
 	return (result);
 }
@@ -737,7 +763,7 @@ int		unescape_string_token (const char *token, char *out, usize cap, usize *size
 int		concatenate_token (struct tokenizer *tokenizer, const char *token, const struct position *pos) {
 	int		success;
 
-	if (tokenizer->current && tokenizer->current[-1] && tokenizer->current[-1] != Token_newline && token[-1] && token[-1] != Token_newline) {
+	if (tokenizer->current && tokenizer->current[-1] && tokenizer->current[-1] != Token (newline) && token[-1] && token[-1] != Token (newline)) {
 		char	*content;
 		usize	cap = 0;
 		int		offset;
@@ -784,10 +810,8 @@ int		concatenate_token (struct tokenizer *tokenizer, const char *token, const st
 			};
 			const char	*ptr = content;
 
-			if (tokenizer->prev) {
-				tokenizer->size -= get_token_length (tokenizer->current) + 1 + 5;
-				tokenizer->current = tokenizer->prev;
-				tokenizer->prev = 0;
+			success = revert_token (tokenizer);
+			if (success) {
 				success = make_token (tokenizer, &state, (const char **) &ptr);
 				if (success) {
 					if ((success = (*ptr == 0))) {
@@ -797,9 +821,6 @@ int		concatenate_token (struct tokenizer *tokenizer, const char *token, const st
 						success = 0;
 					}
 				}
-			} else {
-				Error_Message (pos, "prev pointer is null");
-				success = 0;
 			}
 		}
 		free (content);
@@ -839,7 +860,7 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 	if (!tokens[-1] || tokens[-1] == end_token) {
 		fprintf (file, "%*.s\n", get_token_offset (tokens), "");
 	} else while (tokens[-1] && tokens[-1] != end_token) {
-		if (tokens[-1] == Token_newline) {
+		if (tokens[-1] == Token (newline)) {
 			size_t	index = 0, initial_line = pos->line;
 
 			if (tokens[0] > 16) {
@@ -848,7 +869,7 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 
 				pos->line += tokens[0];
 				next = next_const_token (tokens, 0);
-				while (next[-1] == Token_newline) {
+				while (next[-1] == Token (newline)) {
 					pos->line += next[0];
 					tokens = next;
 					next = next_const_token (next, 0);
@@ -873,17 +894,17 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 			if (!next_const_token (tokens, 0)[-1]) {
 				fprintf (file, "%*.s\n", get_token_offset (tokens), "");
 			}
-		} else if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "#") && ((prev && prev[-1] == Token_newline) || !prev)) {
+		} else if (tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "#") && ((prev && prev[-1] == Token (newline)) || !prev)) {
 			const char	*next;
 
 			next = next_const_token (tokens, 0);
 			if (next[-1]) {
-				if (next[-1] && next[-1] == Token_identifier && 0 == strcmp (next, "line")) {
+				if (next[-1] && next[-1] == Token (identifier) && 0 == strcmp (next, "line")) {
 					next = next_const_token (next, 0);
-					if (next[-1] && next[-1] == Token_preprocessing_number) {
+					if (next[-1] && next[-1] == Token (preprocessing_number)) {
 						pos->line = atoi (next) - 1;
 						next = next_const_token (next, 0);
-						if (next[-1] && next[-1] == Token_string) {
+						if (next[-1] && next[-1] == Token (string)) {
 							pos->filename = next;
 						}
 					}
@@ -902,13 +923,13 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 	if (!tokens[-1] && get_token_offset (tokens) > 0) {
 		fprintf (file, "%*.s", get_token_offset (tokens), "");
 	}
-	if (prev && prev[-1] != Token_newline) {
+	if (prev && prev[-1] != Token (newline)) {
 		fprintf (file, "\n");
 	}
 }
 
 void	print_tokens (const char *tokens, int with_lines, const char *line_prefix, FILE *file) {
-	print_tokens_until (tokens, with_lines, line_prefix, Token_eof, file);
+	print_tokens_until (tokens, with_lines, line_prefix, Token (eof), file);
 }
 
 #ifndef Without_Tests
@@ -941,34 +962,20 @@ int		copy_token (struct tokenizer *tokenizer, const char *token) {
 	int		success;
 
 	length = get_token_length (token);
-	if (token[-1] == Token_newline && tokenizer->current && tokenizer->current[-1] == Token_newline) {
+	if (token[-1] == Token (newline) && tokenizer->current && tokenizer->current[-1] == Token (newline)) {
 		if (token[0] + tokenizer->current[0] > 0x7f) {
 			int		remaining = (token[0] + tokenizer->current[0]) - 0x7f;
 
 			tokenizer->current[0] = 0x7f;
-			if ((success = prepare_tokenizer (tokenizer, 7))) {
-				push_tokenizer_2bytes (tokenizer, 1);
-				push_tokenizer_2bytes (tokenizer, 0);
-				push_tokenizer_byte (tokenizer, token[-1]);
-				tokenizer->prev = tokenizer->current;
-				tokenizer->current = tokenizer->data + tokenizer->size;
-				push_tokenizer_byte (tokenizer, remaining);
-				push_tokenizer_byte (tokenizer, 0);
+			if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (1)))) {
+				tokenizer->current = push_token_bytes (tokenizer, 0, token[-1], &remaining, 1);
 			}
 		} else {
 			tokenizer->current[0] += token[0];
 			success = 1;
 		}
-	} else if ((success = prepare_tokenizer (tokenizer, length + 6))) {
-		push_tokenizer_byte (tokenizer, token[-5]);
-		push_tokenizer_byte (tokenizer, token[-4]);
-		push_tokenizer_byte (tokenizer, token[-3]);
-		push_tokenizer_byte (tokenizer, token[-2]);
-		push_tokenizer_byte (tokenizer, token[-1]);
-		tokenizer->prev = tokenizer->current;
-		tokenizer->current = tokenizer->data + tokenizer->size;
-		push_tokenizer_bytes (tokenizer, (void *) token, length);
-		push_tokenizer_byte (tokenizer, 0);
+	} else if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (length)))) {
+		tokenizer->current = push_token_bytes (tokenizer, get_token_offset (token), token[-1], token, get_token_length (token));
 	}
 	return (success);
 }
