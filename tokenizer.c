@@ -123,7 +123,7 @@ int		prepare_tokenizer (struct tokenizer *tokenizer, usize tofit) {
 	if (tokenizer->size + tofit + Token_Page_Footer_Size > tokenizer->cap) {
 		void	*memory;
 
-		Assert (tokenizer->size + Token_Page_Footer_Size <= tokenizer->cap);
+		Assert (tokenizer->cap == 0 || tokenizer->size + Token_Page_Footer_Size <= tokenizer->cap);
 		memory = expand_array (0, &tokenizer->cap);
 		if (memory) {
 			void	*last_token = 0, *pointers[2];
@@ -222,21 +222,27 @@ int		push_compiled_newline_token (struct tokenizer *tokenizer, int count, int of
 	return (success);
 }
 
+int		revert_token (struct tokenizer *tokenizer);
+
 int		push_string_token (struct tokenizer *tokenizer, int offset, const char *string, usize length, int push_at_existing) {
 	int		success;
 
 	if (push_at_existing && tokenizer->current && tokenizer->current[-1] == Token (string)) {
-		int		old_length = get_token_length (tokenizer->current);
+		int		old_length;
+		char	*memory;
 
-		tokenizer->size -= Token_Footer_Size;
-		/* todo: multipaging bug! */
-		if ((success = prepare_tokenizer (tokenizer, length + Token_Footer_Size))) {
-			push_tokenizer_bytes (tokenizer, (void *) string, length);
-			push_token_footer (tokenizer, length);
-			length += get_token_length (tokenizer->current);
-			set_token_length (tokenizer->current, length);
-			Assert (get_token_length (tokenizer->current) == (int) length);
+		old_length = get_token_length (tokenizer->current);
+		offset = get_token_offset (tokenizer->current);
+		memory = malloc (old_length + length);
+		memcpy (memory, tokenizer->current, old_length);
+		revert_token (tokenizer);
+		if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (length + old_length)))) {
+			push_token_header (tokenizer, length + old_length, offset, Token (string));
+			push_tokenizer_bytes (tokenizer, memory, old_length);
+			push_tokenizer_bytes (tokenizer, string, length);
+			push_token_footer (tokenizer, length + old_length);
 		}
+		free (memory);
 	} else if ((success = prepare_tokenizer (tokenizer, length + 6))) {
 		tokenizer->current = push_token_bytes (tokenizer, offset, Token (string), string, length);
 		Assert (get_token_length (tokenizer->current) >= 0);
@@ -378,7 +384,7 @@ static void	unescape_symbol (int ch, char **pout) {
 }
 
 char	*get_first_token (struct tokenizer *tokenizer) {
-	return (tokenizer->start_data ? tokenizer->start_data + sizeof (void *) + 5 : 0);
+	return (tokenizer->start_data ? tokenizer->start_data + Token_Page_Header_Size + Token_Header_Size : 0);
 }
 
 char	*get_next_from_tokenizer (struct tokenizer *tokenizer, char *token) {
@@ -397,7 +403,7 @@ char	*get_next_from_tokenizer (struct tokenizer *tokenizer, char *token) {
 int		end_tokenizer (struct tokenizer *tokenizer, int offset) {
 	int		success;
 
-	if ((success = tokenizer->cap - tokenizer->size >= 6 || prepare_tokenizer (tokenizer, 6))) {
+	if ((success = tokenizer->cap - tokenizer->size >= Calc_Token_Size (0) || prepare_tokenizer (tokenizer, Calc_Token_Size (0)))) {
 		tokenizer->current = push_token_bytes (tokenizer, offset, Token (eof), 0, 0);
 	}
 	return (success);
@@ -630,14 +636,16 @@ int		revert_token (struct tokenizer *tokenizer) {
 }
 
 void	free_tokens (const char *tokens) {
-	void	**memory = (void **) (tokens - 5 - sizeof (void *));
+	void	**memory = (void **) (tokens - Token_Page_Header_Size);
 
 	while (*memory) {
 		void	*next = *memory;
 
+		memory = (void **) ((char *) memory - Token_Header_Size);
 		free (memory);
-		memory = (void **) next;
+		memory = next ? (void **) ((char *) next + Token_Header_Size) : 0;
 	}
+	memory = (void **) ((char *) memory - Token_Header_Size);
 	free (memory);
 }
 
@@ -649,8 +657,9 @@ void	free_tokenizer (struct tokenizer *tokenizer) {
 }
 
 void	reset_tokenizer (struct tokenizer *tokenizer) {
+	/* TODO: reset at the begin */
 	if (tokenizer->data) {
-		tokenizer->size = sizeof (void *);
+		tokenizer->size = Token_Page_Header_Size;
 	}
 }
 
