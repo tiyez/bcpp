@@ -1237,7 +1237,6 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 				success = 0;
 				break ;
 			}
-			Debug ("HERE");
 			next = next_const_token (next, pos);
 			if (next[-1] && next[-1] != Token_newline) {
 				int		is_left_empty = 0;
@@ -1358,6 +1357,7 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 	}
 	return (success);
 }
+
 int		evaluate_defined_operator (struct bcpp *bcpp, struct tokenizer *tokenizer, const char **ptokens, struct position *pos) {
 	const char	*tokens = *ptokens;
 	int			success;
@@ -1715,7 +1715,7 @@ int		expand_and_evaluate_expression (struct bcpp *bcpp, const char *tokens, isiz
 	return (success);
 }
 
-int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer, const char **ptokens, struct position *pos) {
+int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer, const char **ptokens, struct position *pos, int is_top_level) {
 	int			success;
 	const char	*tokens = *ptokens;
 	struct tokenizer	cmacro_tokenizer = {0}, *macro_tokenizer = &cmacro_tokenizer;
@@ -1763,6 +1763,7 @@ int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer
 	}
 	if (success) {
 		macro_body = get_next_from_tokenizer (macro_tokenizer, begin);
+		Debug_Code (print_tokens (macro_body, 1, "calleach body", stderr));
 		tokens = next_const_token (tokens, pos);
 		if (success) {
 			int		is_multiline = 0;
@@ -1836,7 +1837,9 @@ int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer
 				}
 				if (success) {
 					if (macro) {
-						success = push_line_directive (tokenizer, macro->pos.filename, macro->pos.line);
+						if (is_top_level) {
+							success = push_line_directive (tokenizer, macro->pos.filename, macro->pos.line);
+						}
 						if (success) {
 							success = evaluate_macro_body (bcpp, tokenizer, macro_tokenizer, macro->pos.column - 1, macro, args);
 							if (success && is_multiline && !(macro->flags & Macro_Flag_multiline)) {
@@ -1855,7 +1858,9 @@ int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer
 				}
 				g_indicies[g_index] += 1;
 			}
-			success = success && push_line_directive (tokenizer, pos->filename, pos->line);
+			if (is_top_level) {
+				success = success && push_line_directive (tokenizer, pos->filename, pos->line);
+			}
 			g_index -= 1;
 		}
 	}
@@ -1951,7 +1956,11 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 				if (0 == strcmp (tokens, "include") || 0 == strcmp (tokens, "import")) {
 					if (is_active) {
 						int		is_import = 0 == strcmp (tokens, "import");
+						int		was_multiline = bcpp->was_multiline;
+						int		paste_column = bcpp->paste_column;
 
+						bcpp->was_multiline = 0;
+						bcpp->paste_column = 0;
 						tokens = next_const_token (tokens, pos);
 						/* TODO(Viktor): include with macro argument */
 						if (tokens[-1] == Token_path_relative) {
@@ -1968,7 +1977,9 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 							Error_Message (pos, "invalid argument for 'include' directive, expected \"...\" or <...> strings");
 							success = 0;
 						}
-						push_line_directive (tokenizer, pos->filename, pos->line);
+						success = success && push_line_directive (tokenizer, pos->filename, pos->line);
+						bcpp->was_multiline = was_multiline;
+						bcpp->paste_column = paste_column;
 					} else {
 						is_unhandled = 1;
 					}
@@ -2139,7 +2150,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 				} else if (0 == strcmp (tokens, "calleach")) {
 					if (is_active) {
 						tokens = next_const_token (tokens, pos);
-						success = evaluate_calleach_directive (bcpp, tokenizer, &tokens, pos);
+						success = evaluate_calleach_directive (bcpp, tokenizer, &tokens, pos, is_top_level);
 					}
 				} else if (0 == strcmp (tokens, "stringify")) {
 					Debug ("STRINGIFY");
@@ -2215,7 +2226,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 			tokens = next;
 		} else {
 			if (is_active) {
-				success = evaluate_token (bcpp, tokenizer, &tokens, pos, 1, 1);
+				success = evaluate_token (bcpp, tokenizer, &tokens, pos, 1, is_top_level);
 			} else if (is_bypass) {
 				copy_token (tokenizer, tokens);
 			} else {

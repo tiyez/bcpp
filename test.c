@@ -59,9 +59,9 @@ const struct vertex vertices_cube[] = {
 
 Sprite_Quad_Z (0)
 Flip_Quad Sprite_Quad_Z (1)
-Sprint_Quad_X (0)
+Sprite_Quad_X (0)
 Flip_Quad Sprite_Quad_X (1)
-Sprint_Quad_Y (0)
+Sprite_Quad_Y (0)
 Flip_Quad Sprite_Quad_Y (1)
 
 ss
