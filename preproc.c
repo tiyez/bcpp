@@ -1504,8 +1504,6 @@ int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 				Debug_Code (print_tokens (macro_body, 1, prefix, stderr));
 				if (macro_body[-1]) {
 					int		is_stringify = 0;
-					char	index_string[64] = "_Index";
-					const usize	index_string_size = sizeof "_Index" - 1;
 					char	*begin;
 
 					begin = tokenizer->current;
@@ -1513,15 +1511,6 @@ int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 						if (macro_body[-1] == Token_identifier && 0 == strcmp (macro_body, "_Stringify")) {
 							is_stringify = 1;
 							break ;
-						} else if (g_eval_defined_operator > 0 && macro_body[-1] == Token_identifier && 0 == strcmp (macro_body, "defined")) {
-							macro_body = next_const_token (macro_body, inner_pos);
-							success = evaluate_defined_operator (bcpp, tokenizer, &macro_body, inner_pos);
-						} else if (g_index >= 0 && macro_body[-1] == Token_identifier && 0 == strncmp (macro_body, index_string, index_string_size) && isdigit (macro_body[index_string_size]) && macro_body[index_string_size + 1] == 0 && macro_body[index_string_size] - '0' <= g_index) {
-							char	index[16];
-
-							sprintf (index, "%d", g_indicies[macro_body[index_string_size] - '0']);
-							success = push_token (tokenizer, get_token_offset (macro_body), Token_preprocessing_number, index, strlen (index));
-							macro_body = next_const_token (macro_body, inner_pos);
 						} else {
 							success = evaluate_token (bcpp, tokenizer, &macro_body, inner_pos, 1, 0);
 						}
@@ -1580,45 +1569,67 @@ int		evaluate_token (struct bcpp *bcpp, struct tokenizer *tokenizer, const char 
 	char		*begin = tokenizer->current;
 	int			new_paste_column = -1;
 	int			is_fc;
+	static char	index_string[64] = "_Index";
+	const usize	index_string_size = sizeof "_Index" - 1;
 
 	// if (tokens[-1] == Token_identifier) {
-	is_fc = tokenizer->current && tokenizer->current[-1] == Token_identifier && is_function_like_macro_call (tokens);
-	if (is_fc || tokens[-1] == Token_identifier) {
-		struct macro_desc	*macro;
-		const char			*ident = is_fc ? tokenizer->current : tokens;
+	if (g_eval_defined_operator > 0 && tokens[-1] == Token_identifier && 0 == strcmp (tokens, "defined")) {
+		tokens = next_const_token (tokens, pos);
+		success = evaluate_defined_operator (bcpp, tokenizer, &tokens, pos);
+		*ptokens = tokens;
+	} else if (g_index >= 0 && tokens[-1] == Token_identifier &&
+			0 == strncmp (tokens, index_string, index_string_size) &&
+			isdigit (tokens[index_string_size]) && tokens[index_string_size + 1] == 0 &&
+			tokens[index_string_size] - '0' <= g_index) {
+		char	index[16];
+		usize	length;
 
-		macro = find_macro (bcpp->macros, ident);
-		if (macro && (!macro->args || (macro->args && (is_fc || is_function_like_macro_call (tokens))))) {
-			if ((check_macro_stack && !is_macro_pushed_to_stack (&bcpp->macro_stack, macro->ident)) || !check_macro_stack) {
-				int		old_line = pos->line;
+		length = snprintf (index, sizeof index, "%d", g_indicies[tokens[index_string_size] - '0']);
+		success = push_token (tokenizer, get_token_offset (tokens), Token_preprocessing_number, index, length);
+		tokens = next_const_token (tokens, pos);
+		*ptokens = tokens;
+	} else {
+		is_fc = tokenizer->current && tokenizer->current[-1] == Token_identifier && is_function_like_macro_call (tokens);
+		if (is_fc || tokens[-1] == Token_identifier) {
+			struct macro_desc	*macro;
+			const char			*ident = is_fc ? tokenizer->current : tokens;
 
-				if ((success = push_macro_stack (&bcpp->macro_stack, macro->ident))) {
-					int		offset = get_token_offset (ident);
+			macro = find_macro (bcpp->macros, ident);
+			if (macro && (!macro->args || (macro->args && (is_fc || is_function_like_macro_call (tokens))))) {
+				if ((check_macro_stack && !is_macro_pushed_to_stack (&bcpp->macro_stack, macro->ident)) || !check_macro_stack) {
+					int		old_line = pos->line;
 
-					if ((macro->flags & Macro_Flag_multiline) && is_top_level) {
-						success = push_line_directive (tokenizer, macro->pos.filename, macro->pos.line);
-					}
-					bcpp->was_multiline = bcpp->was_multiline || (macro->flags & Macro_Flag_multiline);
-					if (is_fc) {
-						success = success && revert_token (tokenizer);
-					} else {
-						*ptokens = next_const_token (*ptokens, pos);
-					}
-					success = success && evaluate_macro (bcpp, tokenizer, macro, ptokens, offset, pos, 1);
-					pop_macro_stack (&bcpp->macro_stack);
-					if ((macro->flags & Macro_Flag_multiline)) {
-						new_paste_column = pos->column - 1;
-					}
-				}
-				if (success) {
-					if ((macro->flags & Macro_Flag_multiline) || bcpp->was_multiline) {
-						if (is_top_level) {
-							success = push_line_directive (tokenizer, pos->filename, pos->line);
-							bcpp->was_multiline = 0;
+					if ((success = push_macro_stack (&bcpp->macro_stack, macro->ident))) {
+						int		offset = get_token_offset (ident);
+
+						if ((macro->flags & Macro_Flag_multiline) && is_top_level) {
+							success = push_line_directive (tokenizer, macro->pos.filename, macro->pos.line);
 						}
-					} else if (old_line < pos->line) {
-						success = push_compiled_newline_token (tokenizer, pos->line - old_line, 0);
+						bcpp->was_multiline = bcpp->was_multiline || (macro->flags & Macro_Flag_multiline);
+						if (is_fc) {
+							success = success && revert_token (tokenizer);
+						} else {
+							*ptokens = next_const_token (*ptokens, pos);
+						}
+						success = success && evaluate_macro (bcpp, tokenizer, macro, ptokens, offset, pos, 1);
+						pop_macro_stack (&bcpp->macro_stack);
+						if ((macro->flags & Macro_Flag_multiline)) {
+							new_paste_column = pos->column - 1;
+						}
 					}
+					if (success) {
+						if ((macro->flags & Macro_Flag_multiline) || bcpp->was_multiline) {
+							if (is_top_level) {
+								success = push_line_directive (tokenizer, pos->filename, pos->line);
+								bcpp->was_multiline = 0;
+							}
+						} else if (old_line < pos->line) {
+							success = push_compiled_newline_token (tokenizer, pos->line - old_line, 0);
+						}
+					}
+				} else {
+					success = copy_token (tokenizer, tokens);
+					*ptokens = next_const_token (tokens, pos);
 				}
 			} else {
 				success = copy_token (tokenizer, tokens);
@@ -1628,17 +1639,14 @@ int		evaluate_token (struct bcpp *bcpp, struct tokenizer *tokenizer, const char 
 			success = copy_token (tokenizer, tokens);
 			*ptokens = next_const_token (tokens, pos);
 		}
-	} else {
-		success = copy_token (tokenizer, tokens);
-		*ptokens = next_const_token (tokens, pos);
-	}
-	if (success && bcpp->paste_column >= 0) {
-		begin = get_next_from_tokenizer (tokenizer, begin);
-		if (begin) {
-			set_token_offset (begin, bcpp->paste_column);
+		if (success && bcpp->paste_column >= 0) {
+			begin = get_next_from_tokenizer (tokenizer, begin);
+			if (begin) {
+				set_token_offset (begin, bcpp->paste_column);
+			}
 		}
+		bcpp->paste_column = new_paste_column;
 	}
-	bcpp->paste_column = new_paste_column;
 	return (success);
 }
 

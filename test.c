@@ -1,7 +1,7 @@
 
 
 
-#if 0
+#if 1
 
 #define Sprite_Quad_Z /
 (0,0,0, 0,1,0, 1,1,0, 1,0,0)
@@ -50,7 +50,7 @@ const struct vertex vertices_cube[] = {
 #end 1
 	#end
 
-#endif
+#else
 
 #define Sprite_Quad_Z(z) (0,0,z, 0,1,z, 1,1,z, 1,0,z)
 #define Sprite_Quad_X(x) (x,0,0, x,0,1, x,1,1, x,1,0)
@@ -65,3 +65,5 @@ Sprite_Quad_Y (0)
 Flip_Quad Sprite_Quad_Y (1)
 
 ss
+
+#endif
