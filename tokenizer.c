@@ -888,13 +888,15 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 					tokens = next;
 					next = next_const_token (next, 0);
 				}
-				fprintf (file, "\n%s", line_prefix);
-				if (with_lines) {
-					fprintf (file, "%*d|", 4, pos->line);
+				if (!g_no_line_directives) {
+					fprintf (file, "\n%s", line_prefix);
+					if (with_lines) {
+						fprintf (file, "%*d|", 4, pos->line);
+					}
+					fprintf (file, "#line %d ", pos->line);
+					print_string_token (pos->filename, file);
+					fprintf (file, "\n");
 				}
-				fprintf (file, "#line %d ", pos->line);
-				print_string_token (pos->filename, file);
-				fprintf (file, "\n");
 			} else {
 				while (index < (size_t) tokens[0]) {
 					pos->line += 1;
@@ -910,6 +912,7 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 			}
 		} else if (tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "#") && ((prev && prev[-1] == Token (newline)) || !prev)) {
 			const char	*next;
+			int			should_print = 1;
 
 			next = next_const_token (tokens, 0);
 			if (next[-1]) {
@@ -920,11 +923,17 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 						next = next_const_token (next, 0);
 						if (next[-1] && next[-1] == Token (string)) {
 							pos->filename = next;
+							if (g_no_line_directives) {
+								tokens = next_const_token (next, 0);
+								should_print = 0;
+							}
 						}
 					}
 				}
 			}
-			fprintf (file, "%*.s%s", get_token_offset (tokens), "", tokens);
+			if (should_print) {
+				fprintf (file, "%*.s%s", get_token_offset (tokens), "", tokens);
+			}
 		} else if (is_string_token (tokens[-1])) {
 			fprintf (file, "%*.s", get_token_offset (tokens), "");
 			print_string_token (tokens, file);

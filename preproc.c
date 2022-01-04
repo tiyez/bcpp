@@ -51,6 +51,9 @@ enum {
 	Macro_Flag_undef = 0x4,
 	Macro_Flag_builtin = 0x8,
 	Macro_Flag_disable_directives = 0x10,
+	Macro_Flag_no_recursion_check = 0x20,
+
+	Macro_Arg_Flag_no_expand = 0x1,
 };
 
 struct macro_desc {
@@ -159,7 +162,7 @@ const char	*get_next_file_dep (struct filecache *cache, const char *dep) {
 	return (result);
 }
 
-int		add_file_to_cache (struct filecache *cache, const char *filename, char *content, usize size, int *pindex) {
+int		add_file_to_cache (struct filecache *cache, const char **pfilename, char *content, usize size, int *pindex) {
 	int		success;
 
 	if ((cache->contents_count + 1) * sizeof *cache->contents >= cache->contents_cap) {
@@ -192,7 +195,8 @@ int		add_file_to_cache (struct filecache *cache, const char *filename, char *con
 		if (cache->filenames.current) {
 			success = revert_token (&cache->filenames);
 		}
-		success = success && push_string_token (&cache->filenames, cache->contents_count - 1, filename, strlen (filename), 0);
+		success = success && push_string_token (&cache->filenames, cache->contents_count - 1, *pfilename, strlen (*pfilename), 0);
+		*pfilename = cache->filenames.current;
 		success = success && end_tokenizer (&cache->filenames, 0);
 		if (success) {
 			*pindex = cache->contents_count - 1;
@@ -201,16 +205,17 @@ int		add_file_to_cache (struct filecache *cache, const char *filename, char *con
 	return (success);
 }
 
-int		get_file_cache_index (struct filecache *cache, const char *filename) {
+int		get_file_cache_index (struct filecache *cache, const char **pfilename) {
 	const char	*token;
 	int			index;
 
 	token = get_first_token (&cache->filenames);
-	if (token) while (token[-1] && 0 != strcmp (token, filename)) {
+	if (token) while (token[-1] && 0 != strcmp (token, *pfilename)) {
 		token = next_const_token (token, 0);
 	}
 	if (token && token[-1]) {
 		index = get_token_offset (token);
+		*pfilename = token;
 	} else {
 		index = -1;
 	}
@@ -227,7 +232,7 @@ int		add_content_to_translation_unit (struct bcpp *bcpp, struct tokenizer *token
 
 	tokens = tokenize (content, newline_array, 1, filename);
 	if (tokens) {
-		success = push_line_directive (tokenizer, filename, 1);
+		success = push_line_directive (tokenizer, filename, !g_no_line_directives);
 		if (success) {
 			struct position		cpos = {
 				.filename = filename,
@@ -247,11 +252,11 @@ int		add_content_to_translation_unit (struct bcpp *bcpp, struct tokenizer *token
 	return (success);
 }
 
-char	*load_file_content (struct filecache *cache, const char *filename, usize *psize, int **nl_array) {
+char	*load_file_content (struct filecache *cache, const char **pfilename, usize *psize, int **nl_array) {
 	char	*content;
 	int		cache_index;
 
-	cache_index = get_file_cache_index (cache, filename);
+	cache_index = get_file_cache_index (cache, pfilename);
 	if (cache_index >= 0) {
 		content = (char *) cache->contents[cache_index][Content_Start];
 		if (psize) {
@@ -263,9 +268,9 @@ char	*load_file_content (struct filecache *cache, const char *filename, usize *p
 	} else {
 		usize	size;
 
-		content = read_entire_file (filename, &size);
+		content = read_entire_file (*pfilename, &size);
 		if (content) {
-			if (add_file_to_cache (cache, filename, content, size, &cache_index)) {
+			if (add_file_to_cache (cache, pfilename, content, size, &cache_index)) {
 				if (psize) {
 					*psize = cache->contents[cache_index][Content_End] - content;
 				}
@@ -287,7 +292,7 @@ int		add_file_to_translation_unit (struct bcpp *bcpp, struct tokenizer *tokenize
 	int		success;
 	int		*nl_array;
 
-	content = load_file_content (&bcpp->filecache, filename, &size, &nl_array);
+	content = load_file_content (&bcpp->filecache, &filename, &size, &nl_array);
 	if (content) {
 		success = add_content_to_translation_unit (bcpp, tokenizer, content, size, nl_array, filename);
 	} else {
@@ -309,7 +314,12 @@ char	*make_translation_unit (struct bcpp *bcpp, const char *filename) {
 	char	builtin_macros[] = Builtin_Macros;
 	usize	builtin_macros_size = sizeof (Builtin_Macros);
 
-	success = add_content_to_translation_unit (bcpp, tokenizer, bcpp->predefined, bcpp->predefined_size, (int []) {0}, "<predefined>");
+	if (bcpp->predefined) {
+		success = add_content_to_translation_unit (bcpp, tokenizer, bcpp->predefined, bcpp->predefined_size, (int []) {0}, "<predefined>");
+	} else {
+		Debug ("no predefined macros");
+		success = 1;
+	}
 	if (success) {
 		g_is_builtin_macro = 1;
 		success = add_content_to_translation_unit (bcpp, tokenizer, builtin_macros, builtin_macros_size, (int []) {0}, "<builtin>");
@@ -515,8 +525,9 @@ int		include_file_global (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					success = add_file_to_translation_unit (bcpp, tokenizer, path);
 					if (success) {
 						int		cache_index;
+						const char	*filename = pos->filename;
 
-						cache_index = get_file_cache_index (&bcpp->filecache, pos->filename);
+						cache_index = get_file_cache_index (&bcpp->filecache, &filename);
 						if (cache_index >= 0) {
 							success = add_file_dep (&bcpp->filecache, cache_index, path, strlen (path));
 						}
@@ -546,7 +557,25 @@ int		include_file_relative (struct bcpp *bcpp, struct tokenizer *tokenizer, cons
 
 	if ((ptr = strrchr (relative_from, '/'))) {
 		memcpy (path, relative_from, ptr - relative_from + 1);
-		strcpy (path + (ptr - relative_from + 1), filename);
+		ptr = path + (ptr - relative_from);
+		while (0 == strncmp (filename, "../", 3) && ptr > path) {
+			char	*nptr;
+
+			*ptr = 0;
+			nptr = strrchr (path, '/');
+			if (nptr) {
+				nptr[1] = 0;
+				ptr = nptr;
+			} else {
+				ptr = path;
+			}
+			filename += 3;
+		}
+		if (ptr > path) {
+			strcpy (ptr + 1, filename);
+		} else {
+			strcpy (path, filename);
+		}
 	} else {
 		strcpy (path, filename);
 	}
@@ -563,8 +592,9 @@ int		include_file_relative (struct bcpp *bcpp, struct tokenizer *tokenizer, cons
 				success = add_file_to_translation_unit (bcpp, tokenizer, path);
 				if (success) {
 					int		cache_index;
+					const char	*filename = relative_from;
 
-					cache_index = get_file_cache_index (&bcpp->filecache, relative_from);
+					cache_index = get_file_cache_index (&bcpp->filecache, &filename);
 					if (cache_index >= 0) {
 						success = add_file_dep (&bcpp->filecache, cache_index, path, strlen (path));
 					}
@@ -622,6 +652,7 @@ struct macro_args {
 	int			is_variadic;
 	usize		size;
 	const char	*tokens[32][3]; /* 0 - macro, 1 - macro call expanded, 2 - macro call */
+	int			flags[32];
 };
 
 #define Macro_Arg 0
@@ -635,6 +666,7 @@ int		push_macro_arg (struct macro_args *args, const char *arg) {
 		args->tokens[args->size][0] = arg;
 		args->tokens[args->size][1] = 0;
 		args->tokens[args->size][2] = 0;
+		args->flags[args->size] = 0;
 		args->size += 1;
 		success = 1;
 	} else {
@@ -685,6 +717,7 @@ int		init_macro_args (struct macro_args *args, struct macro_desc *desc) {
 
 	if (desc->args) {
 		const char	*arg = next_const_token (desc->args, 0);
+		int			arg_flags = 0;
 
 		args->is_variadic = !!(desc->flags & Macro_Flag_variadic);
 		success = 1;
@@ -693,6 +726,11 @@ int		init_macro_args (struct macro_args *args, struct macro_desc *desc) {
 			if (arg[-1] == Token_identifier || ((desc->flags & Macro_Flag_variadic) && arg[-1] == Token_punctuator && 0 == strcmp (arg, "..."))) {
 				Debug ("push arg '%s'", arg);
 				success = push_macro_arg (args, arg);
+				if (arg_flags) {
+					Debug ("FLAG!!!!!!!!!!!!!!!!!!!!!!!!!!");
+				}
+				args->flags[args->size - 1] = arg_flags;
+				arg_flags = 0;
 				arg = next_const_token (arg, 0);
 				if (success && (desc->flags & Macro_Flag_variadic) && arg[-1] == Token_punctuator && (0 == strcmp (arg, "..."))) {
 					if (args->tokens[args->size - 1][Macro_Arg][-1] != Token_punctuator) {
@@ -712,8 +750,11 @@ int		init_macro_args (struct macro_args *args, struct macro_desc *desc) {
 					Error_Message (&desc->pos, "invalid argument separator");
 					success = 0;
 				}
+			} else if (arg[-1] == Token (punctuator) && 0 == strcmp (arg, "!")) {
+				arg_flags |= Macro_Arg_Flag_no_expand;
 			} else {
 				Error_Message (&desc->pos, "invalid argument token");
+				Assert (0);
 				success = 0;
 			}
 			arg = next_const_token (arg, 0);
@@ -787,11 +828,16 @@ int		evaluate_macro_call (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 				arg = args->tokens[index][Macro_Call_Arg];
 				if (arg == 0) {
 					if ((desc->flags & Macro_Flag_variadic) && index == args->size - 1) {
+						success = end_tokenizer (tokenizer, 0);
+						args->tokens[index][Macro_Call_Arg] = tokenizer->current;
+						args->tokens[index][Macro_Expanded_Arg] = tokenizer->current;
 						break ;
 					} else {
 						Error_Message (pos, "invalid number of arguments. Expected %zu, got %zu", args->size, arg_index);
 						success = 0;
 					}
+				} else if (args->flags[index] & Macro_Arg_Flag_no_expand) {
+					success = set_macro_arg (args, args->tokens[index][Macro_Call_Arg], index, Macro_Expanded_Arg);
 				} else {
 					struct position	pos = { .filename = "<macro>", .line = 1, .column = 1, };
 
@@ -868,6 +914,9 @@ int		define_macro_body (struct macro_desc *desc, struct tokenizer *tokenizer, co
 						break ;
 					}
 				}
+			} else if (tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "!")) {
+				success = copy_token (tokenizer, tokens);
+				tokens = next_const_token (tokens, pos);
 			} else {
 				Error_Message (pos, "invalid macro parameter name '%s'", tokens);
 				success = 0;
@@ -892,12 +941,23 @@ int		define_macro_body (struct macro_desc *desc, struct tokenizer *tokenizer, co
 			if (success) {
 				const char	*end_tokens;
 
-				tokens = next_const_token (tokens, pos);
-				if (tokens[-1] == Token_punctuator && 0 == strcmp (tokens, "-") && 0 == get_token_offset (tokens)) {
-					success = copy_token (tokenizer, tokens);
-					desc->flags = Macro_Flag_disable_directives;
+				do {
 					tokens = next_const_token (tokens, pos);
-				}
+					if (tokens[-1] == Token (punctuator) && 0 == get_token_offset (tokens)) {
+						if (0 == strcmp (tokens, "-")) {
+							success = copy_token (tokenizer, tokens);
+							desc->flags |= Macro_Flag_disable_directives;
+						} else if (0 == strcmp (tokens, "!")) {
+							success = copy_token (tokenizer, tokens);
+							desc->flags |= Macro_Flag_no_recursion_check;
+						} else {
+							break ;
+						}
+					} else {
+						break ;
+					}
+				} while (tokens[-1]);
+
 				success = copy_token (tokenizer, tokens);
 				end_tokens = tokens;
 				while (success && tokens[-1] && tokens[-1] != Token_newline) {
@@ -1269,13 +1329,22 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 						success = push_token (tokenizer, get_token_offset (body), Token_identifier, "", 0);
 					}
 					if (success) {
-						success = concatenate_macro_token (tokenizer, next, args, logpos);
-						while (success && is_token (next_const_token (next, 0), Token_punctuator, "##")) {
-							next = next_const_token (next, pos);
-							next = next_const_token (next, pos);
+						if (tokenizer->current[-1] == Token (punctuator) && 0 == strcmp (tokenizer->current, ",") &&
+							next[-1] == Token (identifier) && 0 == strcmp (next, "__VA_ARGS__")) {
+							if (!args->tokens[args->size - 1][Macro_Call_Arg][-1]) {
+								revert_token (tokenizer);
+							}
+							body = next;
+							continue ;
+						} else {
 							success = concatenate_macro_token (tokenizer, next, args, logpos);
+							while (success && is_token (next_const_token (next, 0), Token_punctuator, "##")) {
+								next = next_const_token (next, pos);
+								next = next_const_token (next, pos);
+								success = concatenate_macro_token (tokenizer, next, args, logpos);
+							}
+							next = next_const_token (next, pos);
 						}
-						next = next_const_token (next, pos);
 					}
 					if (success) {
 						set_token_offset (tokenizer->current, get_token_offset (body));
@@ -1314,6 +1383,12 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 				Error_Message (logpos, "invalid operand for stringify operator");
 				success = 0;
 			}
+		} else if (body[-1] == Token (identifier) && 0 == strcmp (body, "_Newline")) {
+			success = push_newline_token (tokenizer, 0);
+		} else if (body[-1] == Token (identifier) && 0 == strcmp (body, "_Hash")) {
+			success = push_token (tokenizer, get_token_offset (body), Token (punctuator), "#", 1);
+		} else if (body[-1] == Token (identifier) && 0 == strcmp (body, "_Va_Args")) {
+			success = push_token (tokenizer, get_token_offset (body), Token (identifier), "__VA_ARGS__", 11);
 		} else if (args && body[-1] == Token_identifier) {
 			usize		arg_index;
 
@@ -1322,21 +1397,14 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 					const char	*arg = args->tokens[arg_index][Macro_Expanded_Arg];
 					char		*begin = tokenizer->current;
 
-					if (!arg) {
-						if (!((desc->flags & Macro_Flag_variadic) && arg_index == args->size - 1)) {
-							Error_Message (pos, "invalid macro argument");
-							success = 0;
-						}
-					} else {
-						while (success && arg[-1]) {
-							success = copy_token (tokenizer, arg);
-							arg = next_const_token (arg, 0);
-						}
-						if (success) {
-							begin = get_next_from_tokenizer (tokenizer, begin);
-							if (begin) {
-								set_token_offset (begin, get_token_offset (body));
-							}
+					while (success && arg[-1]) {
+						success = copy_token (tokenizer, arg);
+						arg = next_const_token (arg, 0);
+					}
+					if (success) {
+						begin = get_next_from_tokenizer (tokenizer, begin);
+						if (begin) {
+							set_token_offset (begin, get_token_offset (body));
 						}
 					}
 				} else {
@@ -1596,6 +1664,9 @@ int		evaluate_token (struct bcpp *bcpp, struct tokenizer *tokenizer, const char 
 
 			macro = find_macro (bcpp->macros, ident);
 			if (macro && (!macro->args || (macro->args && (is_fc || is_function_like_macro_call (tokens))))) {
+				if (macro->flags & Macro_Flag_no_recursion_check) {
+					check_macro_stack = 0;
+				}
 				if ((check_macro_stack && !is_macro_pushed_to_stack (&bcpp->macro_stack, macro->ident)) || !check_macro_stack) {
 					int		old_line = pos->line;
 
@@ -1603,7 +1674,7 @@ int		evaluate_token (struct bcpp *bcpp, struct tokenizer *tokenizer, const char 
 						int		offset = get_token_offset (ident);
 
 						if ((macro->flags & Macro_Flag_multiline) && is_top_level) {
-							success = push_line_directive (tokenizer, macro->pos.filename, macro->pos.line);
+							// success = push_line_directive (tokenizer, macro->pos.filename, macro->pos.line);
 						}
 						bcpp->was_multiline = bcpp->was_multiline || (macro->flags & Macro_Flag_multiline);
 						if (is_fc) {
@@ -1614,7 +1685,7 @@ int		evaluate_token (struct bcpp *bcpp, struct tokenizer *tokenizer, const char 
 						success = success && evaluate_macro (bcpp, tokenizer, macro, ptokens, offset, pos, 1);
 						pop_macro_stack (&bcpp->macro_stack);
 						if ((macro->flags & Macro_Flag_multiline)) {
-							new_paste_column = pos->column - 1;
+							// new_paste_column = pos->column - 1;
 						}
 					}
 					if (success) {
@@ -1836,10 +1907,18 @@ int		evaluate_calleach_directive (struct bcpp *bcpp, struct tokenizer *tokenizer
 					memset (args, 0, sizeof *args);
 					success = init_macro_args (args, macros + macro_index);
 					/* note: ignorance of evaluate_macro_call error is on purpose */
-					if (success && evaluate_macro_call (bcpp, macro_tokenizer, macros + macro_index, args, &tokens, 0)) {
-						macro_body = (char *) tokens;
-						macro = macros + macro_index;
-						break ;
+					if (success) {
+						if (tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "(")) {
+							if (evaluate_macro_call (bcpp, macro_tokenizer, macros + macro_index, args, &tokens, 0)) {
+								macro_body = (char *) tokens;
+								macro = macros + macro_index;
+								break ;
+							}
+						} else {
+							Error_Message (pos, "calleach body should consist only argument lists");
+							Assert (0);
+							success = 0;
+						}
 					}
 					macro_index += 1;
 				}
@@ -2013,6 +2092,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 							}
 						} else {
 							Error_Message (pos, "invalid argument for 'define' directive, expected identifier");
+							Assert (0);
 							success = 0;
 						}
 					} else {
@@ -2305,6 +2385,7 @@ int		init_bcpp (struct bcpp *bcpp, const char *lang, int args_count, char *args[
 	memset (bcpp, 0, sizeof *bcpp);
 	bcpp->paste_column = -1;
 	bcpp->frameworks_count = 0;
+	end_tokenizer (&bcpp->do_not_include_those, 0);
 	if (check_file_access ("/bin/whereis", Access_Mode_execute)) {
 		whereis_location = "/bin/whereis";
 		success = 1;
@@ -2315,7 +2396,7 @@ int		init_bcpp (struct bcpp *bcpp, const char *lang, int args_count, char *args[
 		Error ("no whereis found");
 		success = 0;
 	}
-	if (success) {
+	if (success && 0 != strcmp (lang, "no")) {
 		char	*output;
 
 		output = read_output_of_program (whereis_location, 1, 2, (char *[]) { (char *) whereis_location, "cc", 0 }, env);

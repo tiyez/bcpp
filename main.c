@@ -1,5 +1,5 @@
 
-// #define Release
+#define Release
 
 
 #include <stdio.h>
@@ -12,6 +12,8 @@
 #define Option_fileutil_Open_Binary
 #include "fileutil.h"
 #include "systemutil.h"
+
+int		g_no_line_directives;
 
 #include "text_preprocessor.c"
 #include "tokenizer.c"
@@ -85,6 +87,8 @@ void	macro_desc_stress_test (struct bcpp *bcpp) {
 
 #include <getopt.h>
 
+void	print_deps (struct bcpp *bcpp, const char *token, FILE *file, const char *stack[], usize *pstack_size);
+
 void	usage(const char *progname) {
 	printf ("BCPP v0.1\n\nUsage: %s filename\n", progname);
 	printf ("\nOptions:\n");
@@ -107,12 +111,13 @@ int main (int args_count, char *args[], char *env[]) {
 		int ch;
 
 		Debug ("optind: %d", optind);
-		if ((ch = getopt_long (args_count, args, "d:x:o:I:h", options, 0)) >= 0) {
+		if ((ch = getopt_long (args_count, args, "d:x:o:I:hl", options, 0)) >= 0) {
 			Debug ("ch: %c", ch);
 			switch (ch) {
 				case 'd': depfile = optarg; break ;
 				case 'x': lang = optarg; break ;
 				case 'o': outputfile = optarg; break ;
+				case 'l': g_no_line_directives = 1; break ;
 				case 'I': {
 					if (userincludes->current) {
 						success = revert_token (userincludes);
@@ -164,29 +169,21 @@ int main (int args_count, char *args[], char *env[]) {
 				token = get_first_token (&bcpp->filecache.filenames);
 				if (token && token[-1]) {
 					const char	*dep;
+					const char	*stack[128];
+					usize		stack_size = 0;
 
 					if (outputfile) {
 						fprintf (file, "%s: ", outputfile);
 					} else {
 						fprintf (file, "%.*so: ", get_token_length (token) - 1, token);
 					}
-					dep = get_file_dep (&bcpp->filecache, get_token_offset (token));
-					while (dep) {
-						Debug ("DEP: %s", dep);
-						fprintf (file, "%s ", dep);
-						dep = get_next_file_dep (&bcpp->filecache, dep);
-					}
-					fprintf (file, "\n");
+					print_deps (bcpp, token, file, stack, &stack_size);
+					fprintf (file, "\n\n");
 					token = next_const_token (token, 0);
 					while (token[-1]) {
 						fprintf (file, "%s: ", token);
-						dep = get_file_dep (&bcpp->filecache, get_token_offset (token));
-						while (dep) {
-							Debug ("dep: %p %s", dep, dep);
-							fprintf (file, "%s ", dep);
-							dep = get_next_file_dep (&bcpp->filecache, dep);
-						}
-						fprintf (file, "\n");
+						print_deps (bcpp, token, file, stack, &stack_size);
+						fprintf (file, "\n\n");
 						token = next_const_token (token, 0);
 					}
 				} else {
@@ -200,6 +197,28 @@ int main (int args_count, char *args[], char *env[]) {
 	return (!success);
 }
 
+void	print_deps (struct bcpp *bcpp, const char *token, FILE *file, const char *stack[], usize *pstack_size) {
+	const char	*dep;
+
+	stack[(*pstack_size)++] = token;
+	dep = get_file_dep (&bcpp->filecache, get_token_offset (token));
+	while (dep) {
+		fprintf (file, "%s ", dep);
+		token = dep;
+		if (get_file_cache_index (&bcpp->filecache, &token) >= 0) {
+			usize	index = 0;
+
+			while (index < *pstack_size && 0 != strcmp (token, stack[index])) {
+				index += 1;
+			}
+			if (index >= *pstack_size) {
+				print_deps (bcpp, token, file, stack, pstack_size);
+			}
+		}
+		dep = get_next_file_dep (&bcpp->filecache, dep);
+	}
+	*pstack_size -= 1;
+}
 
 
 

@@ -67,3 +67,46 @@ Flip_Quad Sprite_Quad_Y (1)
 ss
 
 #endif
+
+
+#calleach (1, 2) @ /
+(A) 1
+(A, B) 2
+(A, B, ...) 3 va
+(A, B, C) 3 non-va
+#end
+
+#define Concat1(A, B) A ## B
+#define Concat(A, B) Concat1 (A, B)
+
+
+// Concat (A, B)
+Concat (A, B)
+
+// Concat (A, B, C)
+Concat (A, Concat (B, C))
+
+// Concat (A, B, C, D)
+Concat (A, Concat (B, Concat (C, D)))
+
+
+
+#define Concat2(A, B, ...) /!
+#calleach (A, B, ## __VA_ARGS__) @ / 1
+(a, b) Concat1 (a, b)
+(a, b, ...) Concat2 (a, Concat2 (b, __VA_ARGS__))
+#end 1
+#end
+
+// Concat2 (A, B)
+Concat2 (A, B)
+
+// Concat2 (A, B, C)
+Concat2 (A, Concat2 (B, C))
+
+// Concat2 (A, B, C, D)
+Concat2 (A, Concat2 (B, Concat2 (C, D)))
+
+Concat2 (A, B, C, D)
+
+
