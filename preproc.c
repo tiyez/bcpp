@@ -2,6 +2,8 @@
 
 static int	g_index = -1;
 static int	g_indicies[64] = {0};
+static int	g_is_macro_body_eval = 1;
+static int	g_is_global_eval = 1;
 
 struct macro_stack {
 	usize		size;
@@ -52,6 +54,7 @@ enum {
 	Macro_Flag_builtin = 0x8,
 	Macro_Flag_disable_directives = 0x10,
 	Macro_Flag_no_recursion_check = 0x20,
+	Macro_Flag_no_body_eval = 0x40,
 
 	Macro_Arg_Flag_no_expand = 0x1,
 };
@@ -947,9 +950,12 @@ int		define_macro_body (struct macro_desc *desc, struct tokenizer *tokenizer, co
 						if (0 == strcmp (tokens, "-")) {
 							success = copy_token (tokenizer, tokens);
 							desc->flags |= Macro_Flag_disable_directives;
-						} else if (0 == strcmp (tokens, "!")) {
+						} else if (0 == strcmp (tokens, "^")) {
 							success = copy_token (tokenizer, tokens);
 							desc->flags |= Macro_Flag_no_recursion_check;
+						} else if (0 == strcmp (tokens, "!")) {
+							success = copy_token (tokenizer, tokens);
+							desc->flags |= Macro_Flag_no_body_eval;
 						} else {
 							break ;
 						}
@@ -1389,6 +1395,48 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 			success = push_token (tokenizer, get_token_offset (body), Token (punctuator), "#", 1);
 		} else if (body[-1] == Token (identifier) && 0 == strcmp (body, "_Va_Args")) {
 			success = push_token (tokenizer, get_token_offset (body), Token (identifier), "__VA_ARGS__", 11);
+		} else if (body[-1] == Token (identifier) && 0 == strcmp (body, "_Eval")) {
+			int		is_no_body_eval = 0;
+
+			next = next_const_token (body, pos);
+			if (next[-1] == Token (punctuator) && 0 == strcmp (next, "!")) {
+				is_no_body_eval = 1;
+				next = next_const_token (next, pos);
+			}
+			if (next[-1] == Token (punctuator) && 0 == strcmp (next, "(")) {
+				int					group_level = 0;
+				struct tokenizer	cmacro_tokenizer = {0}, *macro_tokenizer = &cmacro_tokenizer;
+				struct position		inner_pos, inner_pos2;
+
+				next = next_const_token (next, pos);
+				inner_pos = inner_pos2 = *pos;
+				while (success && next[-1] && !(group_level == 0 && next[-1] == Token (punctuator) && 0 == strcmp (next, ")"))) {
+					if (next[-1] == Token (punctuator)) {
+						group_level += (0 == strcmp (next, "("));
+						group_level -= (0 == strcmp (next, ")"));
+					}
+					success = copy_token (macro_tokenizer, next);
+					next = next_const_token (next, pos);
+				}
+				success = success && end_tokenizer (macro_tokenizer, 0);
+				if (success) {
+					next = next_const_token (next, pos);
+					body = get_first_token (macro_tokenizer);
+					Debug_Code (print_tokens_until (body, 1, "_Eval|", Token_eof, stderr));
+					success = evaluate_pasting_concatenation_and_stringization (bcpp, macro_tokenizer, &body, desc, args, &inner_pos);
+					if (success) {
+						g_is_macro_body_eval = !is_no_body_eval;
+						while (success && body[-1]) {
+							success = evaluate_token (bcpp, tokenizer, &body, &inner_pos2, 1, 0);
+						}
+						g_is_macro_body_eval = 1;
+					}
+				}
+				free_tokenizer (macro_tokenizer);
+			} else {
+				Error_Message (pos, "'(' expected");
+				success = 0;
+			}
 		} else if (args && body[-1] == Token_identifier) {
 			usize		arg_index;
 
@@ -1562,9 +1610,14 @@ int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 		if (success) {
 			struct position	cinner_pos = desc->pos, *inner_pos = &cinner_pos;
 
+			Debug_Code (print_tokens (macro_body, 0, "pasted|", stderr));
 			if ((desc->flags & Macro_Flag_multiline) && !(desc->flags & Macro_Flag_disable_directives)) {
+				int		old_global_eval = g_is_global_eval;
+
 				/* TODO: operator evaluation for multiline macros */
+				g_is_global_eval = g_is_macro_body_eval;
 				success = evaluate_directives (bcpp, tokenizer, macro_body, inner_pos, 0);
+				g_is_global_eval = old_global_eval;
 			} else {
 				Debug_Code (char	prefix[256]);
 
@@ -1580,7 +1633,12 @@ int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 							is_stringify = 1;
 							break ;
 						} else {
-							success = evaluate_token (bcpp, tokenizer, &macro_body, inner_pos, 1, 0);
+							if (desc->flags & Macro_Flag_no_body_eval || !g_is_macro_body_eval) {
+								success = copy_token (tokenizer, macro_body);
+								macro_body = next_const_token (macro_body, inner_pos);
+							} else {
+								success = evaluate_token (bcpp, tokenizer, &macro_body, inner_pos, 1, 0);
+							}
 						}
 					}
 					if (success) {
@@ -2314,12 +2372,17 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 			tokens = next;
 		} else {
 			if (is_active) {
-				success = evaluate_token (bcpp, tokenizer, &tokens, pos, 1, is_top_level);
+				if (g_is_global_eval) {
+					success = evaluate_token (bcpp, tokenizer, &tokens, pos, 1, is_top_level);
+				} else {
+					success = copy_token (tokenizer, tokens);
+					tokens = next_const_token (tokens, pos);
+				}
 			} else if (is_bypass) {
-				copy_token (tokenizer, tokens);
+				success = copy_token (tokenizer, tokens);
 			} else {
 				if (tokens[-1] == Token_newline) {
-					copy_token (tokenizer, tokens);
+					success = copy_token (tokenizer, tokens);
 				}
 				tokens = next_const_token (tokens, pos);
 			}
