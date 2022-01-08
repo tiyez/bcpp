@@ -1,5 +1,5 @@
 
-
+#if 0
 
 #if 1
 
@@ -109,4 +109,74 @@ Concat2 (A, Concat2 (B, Concat2 (C, D)))
 
 Concat2 (A, B, C, D)
 
+#endif
 
+
+#define Concat1(A, B) A ## B
+
+#define Concat(A, B, ...) /^
+#calleach (A, B, ## __VA_ARGS__) @ / 1
+(a, b) Concat1 (a, b)
+(a, b, ...) Concat (a, Concat (b, _Va_Args))
+#end 1
+#end
+
+#define Call(Fn, Params) Fn Params
+
+#define SeqFirst(a, ...) a
+#define SeqSecond(a, b, ...) b
+#define Comma ,
+#define Make_String1(a) #a
+#define Make_String(a) Make_String1 (a)
+
+#define Assert_Macro(!name) /
+#ifndef name
+#error name must be defined!
+#endif
+#end
+
+#define List_Enum_Name(!list) list ## _enum_name
+#define List_Params(!list) list ## _params
+
+#define Make_Enum_From_List(!list, name, !body) /
+#define list ## _enum_name name
+enum name {
+#calleach list @ _Eval (List_Params (list)) body,
+}
+#end
+
+#define Make_Enum_Name_Getter(!list, !selector) /
+Assert_Macro (_Eval !(List_Enum_Name (list)))
+Assert_Macro (_Eval !(List_Params (list)))
+const char	*(Concat (get_, List_Enum_Name (list), _name)) (enum List_Enum_Name (list) value) {
+	switch (value) {
+#calleach list @ _Eval (List_Params (list)) return (Make_String (selector));
+	}
+	return ("<invalid>");
+}
+#end
+
+#define DEFINE(!name) /
+#define name ## _hello world
+#end
+
+#define bye yell
+DEFINE (bye)
+Assert_Macro (bye_hello)
+
+
+#define Primitive_Type(name) Concat (Primitive_Type_, name)
+#define Primitive_Types_params (name, value)
+#define Primitive_Types /
+(default, 0) /* triangles */
+(points, GL_POINTS)
+(lines, GL_LINES)
+(line_strip, GL_LINE_STRIP)
+(line_loop, GL_LINE_LOOP)
+(triangles, GL_TRIANGLES)
+(triangle_strip, GL_TRINALGE_STRIP)
+(triangle_fan, GL_TRIANGLE_FAN)
+#end
+
+Make_Enum_From_List (Primitive_Types, primitive_type, Primitive_Type (name) = value)
+Make_Enum_Name_Getter (Primitive_Types, Primitive_Type (name))
