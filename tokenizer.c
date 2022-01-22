@@ -122,6 +122,7 @@ int		prepare_tokenizer (struct tokenizer *tokenizer, usize tofit) {
 	/* todo: can fail when tofit > Memory_Page */
 	if (tokenizer->size + tofit + Token_Page_Footer_Size > tokenizer->cap) {
 		void	*memory;
+		usize	old_cap = tokenizer->cap;
 
 		Debug ("cap: %zu; tofit: %zu; tokenizer->size: %zu; footer size: %zu; available: %zd", tokenizer->cap, tofit, tokenizer->size, Token_Page_Footer_Size, tokenizer->cap - tokenizer->size);
 		Assert (tokenizer->cap == 0 || tokenizer->size + Token_Page_Footer_Size <= tokenizer->cap);
@@ -133,7 +134,7 @@ int		prepare_tokenizer (struct tokenizer *tokenizer, usize tofit) {
 				tokenizer->start_data = memory;
 			}
 			if (tokenizer->data) {
-				void	*pointers[4] = { memory, tokenizer->data, (void *) tokenizer->size, (void *) tokenizer->cap };
+				void	*pointers[4] = { memory, tokenizer->data, (void *) tokenizer->size, (void *) old_cap };
 
 				*(void **) (tokenizer->data + Token_Header_Size) = memory;
 				last_token = push_token_bytes (tokenizer, 0, Token (link), pointers, sizeof pointers);
