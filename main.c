@@ -94,6 +94,8 @@ void	usage(const char *progname) {
 	printf ("\nOptions:\n");
 	printf ("    -d --depfile filename - generate Makefile rules for each translation unit\n");
 	printf ("    -x language - pass language parameter to cc when grabbing built-in macros\n");
+	printf ("    -o filename - filename of output file that will be written in depfiles\n");
+	printf ("    -O filename - actual file to write to\n");
 }
 
 int main (int args_count, char *args[], char *env[]) {
@@ -101,7 +103,7 @@ int main (int args_count, char *args[], char *env[]) {
 		{ .name = "depfile", required_argument, 0, 'd' },
 		{ 0 },
 	};
-	const char	*depfile = 0, *lang = "c", *outputfile = 0, *filename = 0;
+	const char	*depfile = 0, *lang = "c", *outputfile = 0, *outputfile2 = 0, *filename = 0;
 	struct bcpp	cbcpp = {0}, *bcpp = &cbcpp;
 	struct tokenizer	cuserincludes = {0}, *userincludes = &cuserincludes;
 	int			success;
@@ -111,12 +113,13 @@ int main (int args_count, char *args[], char *env[]) {
 		int ch;
 
 		Debug ("optind: %d", optind);
-		if ((ch = getopt_long (args_count, args, "d:x:o:I:hl", options, 0)) >= 0) {
+		if ((ch = getopt_long (args_count, args, "d:x:o:O:I:hl", options, 0)) >= 0) {
 			Debug ("ch: %c", ch);
 			switch (ch) {
 				case 'd': depfile = optarg; break ;
 				case 'x': lang = optarg; break ;
 				case 'o': outputfile = optarg; break ;
+				case 'O': outputfile2 = optarg; break ;
 				case 'l': g_no_line_directives = 1; break ;
 				case 'I': {
 					if (userincludes->current) {
@@ -145,7 +148,17 @@ int main (int args_count, char *args[], char *env[]) {
 
 				preprocessed = make_translation_unit (bcpp, filename);
 				if (preprocessed) {
-					print_tokens (preprocessed, 0, "", stdout);
+					FILE	*file = stdout;
+					const char	*filename = outputfile ? outputfile : outputfile2;
+
+					if (filename) {
+						file = fopen (filename, "w");
+						if (!file) {
+							Error ("cannot open output file '%s'", filename);
+							exit (1);
+						}
+					}
+					print_tokens (preprocessed, 0, "", file);
 					free_tokens (preprocessed);
 					success = 1;
 				} else {
