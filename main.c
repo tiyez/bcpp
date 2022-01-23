@@ -149,7 +149,7 @@ int main (int args_count, char *args[], char *env[]) {
 				preprocessed = make_translation_unit (bcpp, filename);
 				if (preprocessed) {
 					FILE	*file = stdout;
-					const char	*filename = outputfile ? outputfile : outputfile2;
+					const char	*filename = outputfile2;
 
 					if (filename) {
 						file = fopen (filename, "w");
