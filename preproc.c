@@ -653,6 +653,7 @@ void	print_macro_list (struct macro_desc *macros) {
 
 struct macro_args {
 	int			is_variadic;
+	int			is_no_body_eval;
 	usize		size;
 	const char	*tokens[32][3]; /* 0 - macro, 1 - macro call expanded, 2 - macro call */
 	int			flags[32];
@@ -723,6 +724,7 @@ int		init_macro_args (struct macro_args *args, struct macro_desc *desc) {
 		int			arg_flags = 0;
 
 		args->is_variadic = !!(desc->flags & Macro_Flag_variadic);
+		args->is_no_body_eval = 0;
 		success = 1;
 		if (arg[-1] == Token_punctuator && 0 == strcmp (arg, ")")) {
 		} else while (success && arg[-1]) {
@@ -782,6 +784,12 @@ int		evaluate_macro_call (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 	success = 1;
 	is_part_of_va = ((desc->flags & Macro_Flag_variadic) && arg_index + 1 == args->size);
 	tokens = next_const_token (tokens, pos);
+	if (tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "!") && 0 == get_token_offset (tokens)) {
+		args->is_no_body_eval = 1;
+		original = tokens;
+		tokens = next_const_token (tokens, pos);
+		Debug ("NO BODY EVAL. %s, %zu", tokens, args->size);
+	}
 	begin = tokenizer->current;
 	while (success && tokens[-1]) {
 		if (group_level <= 0 && tokens[-1] == Token_punctuator && (0 == strcmp (tokens, ")") || (!is_part_of_va && 0 == strcmp (tokens, ",")))) {
@@ -1399,16 +1407,16 @@ int		evaluate_pasting_concatenation_and_stringization (struct bcpp *bcpp, struct
 			int		is_no_body_eval = 0;
 
 			next = next_const_token (body, pos);
-			if (next[-1] == Token (punctuator) && 0 == strcmp (next, "!")) {
-				is_no_body_eval = 1;
-				next = next_const_token (next, pos);
-			}
 			if (next[-1] == Token (punctuator) && 0 == strcmp (next, "(")) {
 				int					group_level = 0;
 				struct tokenizer	cmacro_tokenizer = {0}, *macro_tokenizer = &cmacro_tokenizer;
 				struct position		inner_pos, inner_pos2;
 
 				next = next_const_token (next, pos);
+				if (next[-1] == Token (punctuator) && 0 == strcmp (next, "!") && 0 == get_token_offset (next)) {
+					is_no_body_eval = 1;
+					next = next_const_token (next, pos);
+				}
 				inner_pos = inner_pos2 = *pos;
 				while (success && next[-1] && !(group_level == 0 && next[-1] == Token (punctuator) && 0 == strcmp (next, ")"))) {
 					if (next[-1] == Token (punctuator)) {
@@ -1570,6 +1578,7 @@ int		evaluate_builtin_foreach (struct bcpp *bcpp, struct tokenizer *tokenizer, s
 				}
 				macro_body = next_const_token (macro_body, 0);
 			}
+			success = success && push_newline_token (macro_tokenizer, 0);
 			success = success && end_tokenizer (macro_tokenizer, 0);
 			if (success) {
 				struct position pos = { .filename = "<macro>", .line = 1, .column = 1, };
@@ -1578,7 +1587,10 @@ int		evaluate_builtin_foreach (struct bcpp *bcpp, struct tokenizer *tokenizer, s
 				if (get_token_offset (begin) == 0 && !(tokenizer->current && tokenizer->current[-1] == Token_newline)) {
 					set_token_offset (begin, 1);
 				}
-				while (success && begin[-1]) {
+				if (args->is_no_body_eval) while (success && begin[-1]) {
+					success = copy_token (tokenizer, begin);
+					begin = next_token (begin, &pos);
+				} else while (success && begin[-1]) {
 					success = evaluate_token (bcpp, tokenizer, (const char **) &begin, &pos, 1, 0);
 				}
 			}
@@ -1633,7 +1645,7 @@ int		evaluate_macro_body (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 							is_stringify = 1;
 							break ;
 						} else {
-							if (desc->flags & Macro_Flag_no_body_eval || !g_is_macro_body_eval) {
+							if (desc->flags & Macro_Flag_no_body_eval || !(g_is_macro_body_eval || (args && !args->is_no_body_eval))) {
 								success = copy_token (tokenizer, macro_body);
 								macro_body = next_const_token (macro_body, inner_pos);
 							} else {

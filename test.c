@@ -111,6 +111,7 @@ Concat2 (A, B, C, D)
 
 #endif
 
+#if 0
 
 #define Concat1(A, B) A ## B
 
@@ -180,3 +181,53 @@ Assert_Macro (bye_hello)
 
 Make_Enum_From_List (Primitive_Types, primitive_type, Primitive_Type (name) = value)
 Make_Enum_Name_Getter (Primitive_Types, Primitive_Type (name))
+
+
+#endif
+
+#if 0
+
+#define COMMA ,
+
+#define List_Enum_Name(!list) list ## _enum_name
+
+#define Make_Enum_Generic(!list, enum_name, !...) /
+#define _Eval !(List_Enum_Name (list)) enum_name
+enum enum_name {
+#calleach list @ / 1
+_Eval !(_Foreach (__ARG__ COMMA, __VA_ARGS__))
+(...)
+#end 1
+};
+#end
+
+
+#define List /
+(hello)
+(world, 1)
+(some, other, case)
+#end
+
+Make_Enum_Generic (List, enumerator, (name) name, (name, value) name = value)
+
+#endif
+
+#define Make_String1(!a, !b) a ## b
+#define Make_String(!a, !b) Make_String1(a, b)
+
+#define Hello(!...) Make_String1(__VA_ARGS__)
+
+#define A a
+#define B b
+
+Hello(A, B)
+
+
+
+
+
+
+
+
+
+
