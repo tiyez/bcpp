@@ -2088,8 +2088,14 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 	int		is_active = 1;
 	int		ifs_level = -1;
 	int		is_bypass = 0;
+	enum {
+		If_Type_regular = 0,
+		If_Type_header,
+		If_Type_implementation,
+	};
 	struct {
 		int		is_already_selected;
+		int		type;
 		int		prev_active;
 		int		prev_bypass;
 	} ifs[128];
@@ -2110,33 +2116,76 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 			if (tokens[-1] == Token_identifier) {
 				int		is_unhandled = 0;
 
-				if (0 == strcmp (tokens, "include") || 0 == strcmp (tokens, "import")) {
+				if (0 == strcmp (tokens, "include") || 0 == strcmp (tokens, "import") || 0 == strcmp (tokens, "implement")) {
 					if (is_active) {
 						int		is_import = 0 == strcmp (tokens, "import");
+						int		is_implement = 0 == strcmp (tokens, "implement");
+						int		skip_include = 0;
 						int		was_multiline = bcpp->was_multiline;
 						int		paste_column = bcpp->paste_column;
 
-						bcpp->was_multiline = 0;
-						bcpp->paste_column = 0;
 						tokens = next_const_token (tokens, pos);
-						/* TODO(Viktor): include with macro argument */
-						if (tokens[-1] == Token_path_relative) {
-							if (!include_file_relative (bcpp, tokenizer, tokens, pos->filename, pos, is_import)) {
-								Error_Message (pos, "while trying to include \"%s\" file", tokens);
-								success = 0;
+						if (is_implement) {
+							char	string[256];
+							int		length;
+							const char	*filename;
+							const char	*suffix = 0;
+
+							if (tokens[-1] == Token (identifier)) {
+								suffix = tokens;
+								tokens = next_const_token (tokens, pos);
 							}
-						} else if (tokens[-1] == Token_path_global) {
-							if (!include_file_global (bcpp, tokenizer, tokens, pos, is_import)) {
-								Error_Message (pos, "while trying to include <%s> file", tokens);
+							if (tokens[-1] != Token_path_relative && tokens[-1] != Token_path_global) {
+								Error_Message (pos, "invalid argument for 'include' directive, expected \"...\" or <...> strings");
 								success = 0;
+							} else {
+								filename = strrchr (tokens, '/');
+								filename = filename ? filename : tokens;
+								length = snprintf (string, sizeof string, "_Impl!_%s", filename);
+								if (suffix) {
+									length += snprintf (string + length, sizeof string - length, "_%s", suffix);
+								}
+								Debug ("implement name: %s", string);
+								if (find_macro (bcpp->macros, string)) {
+									skip_include = 1;
+								} else {
+									char	*begin;
+									struct tokenizer	ctokenizer = {0}, *tokenizer = &ctokenizer;
+									struct position	cinner = { .filename = "<internal>", .line = 1, .column = 1, }, *inner = &cinner;
+
+									begin = tokenizer->current;
+									success = push_token (tokenizer, 0, Token (identifier), string, length);
+									success = success && push_newline_token (tokenizer, 0);
+									success = success && end_tokenizer (tokenizer, 0);
+									begin = get_next_from_tokenizer (tokenizer, begin);
+									success = success && define_macro (bcpp, (const char **) &begin, inner);
+									free_tokenizer (tokenizer);
+								}
 							}
-						} else {
-							Error_Message (pos, "invalid argument for 'include' directive, expected \"...\" or <...> strings");
-							success = 0;
 						}
-						success = success && push_line_directive (tokenizer, pos->filename, pos->line);
-						bcpp->was_multiline = was_multiline;
-						bcpp->paste_column = paste_column;
+						if (!skip_include) {
+							bcpp->was_multiline = 0;
+							bcpp->paste_column = 0;
+							/* TODO(Viktor): include with macro argument */
+							if (tokens[-1] == Token_path_relative) {
+								if (!include_file_relative (bcpp, tokenizer, tokens, pos->filename, pos, is_import)) {
+									Error_Message (pos, "while trying to include \"%s\" file", tokens);
+									success = 0;
+								}
+							} else if (tokens[-1] == Token_path_global) {
+								if (!include_file_global (bcpp, tokenizer, tokens, pos, is_import)) {
+									Error_Message (pos, "while trying to include <%s> file", tokens);
+									success = 0;
+								}
+							} else {
+								Error_Message (pos, "invalid argument for 'include' directive, expected \"...\" or <...> strings");
+								Debug ("%d %s", tokens[-1], tokens);
+								success = 0;
+							}
+							success = success && push_line_directive (tokenizer, pos->filename, pos->line);
+							bcpp->was_multiline = was_multiline;
+							bcpp->paste_column = paste_column;
+						}
 					} else {
 						is_unhandled = 1;
 					}
@@ -2213,7 +2262,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					}
 				} else if (0 == strcmp (tokens, "elif")) {
 					if (is_active || (ifs_level >= 0 && ifs[ifs_level].prev_active)) {
-						if (ifs_level >= 0) {
+						if (ifs_level >= 0 && ifs[ifs_level].type == If_Type_regular) {
 							if (!ifs[ifs_level].is_already_selected) {
 								isize	ret = 0;
 
@@ -2281,7 +2330,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					}
 				} else if (0 == strcmp (tokens, "else")) {
 					if (is_active || (ifs_level >= 0 && ifs[ifs_level].prev_active)) {
-						if (ifs_level >= 0) {
+						if (ifs_level >= 0 && ifs[ifs_level].type == If_Type_regular) {
 							if (!ifs[ifs_level].is_already_selected) {
 								is_active = !is_active;
 								if (is_active) {
@@ -2297,7 +2346,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 						}
 					}
 				} else if (0 == strcmp (tokens, "endif")) {
-					if (ifs_level >= 0) {
+					if (ifs_level >= 0 && ifs[ifs_level].type == If_Type_regular) {
 						is_active = ifs[ifs_level].prev_active;
 						is_bypass = ifs[ifs_level].prev_bypass;
 						ifs_level -= 1;
@@ -2355,6 +2404,123 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					} else {
 						is_unhandled = 1;
 					}
+				} else if (0 == strcmp (tokens, "header_begin")) {
+					if (ifs_level + 1 < (int) Array_Count (ifs)) {
+						ifs_level += 1;
+						memset (ifs + ifs_level, 0, sizeof ifs[0]);
+						ifs[ifs_level].prev_active = is_active;
+						ifs[ifs_level].type = If_Type_header;
+						if (is_active) {
+							char	string[256];
+							int		length;
+							const char	*filename;
+
+							filename = strrchr (pos->filename, '/');
+							filename = filename ? filename : pos->filename;
+							length = snprintf (string, sizeof string, "_Header!_%s", filename);
+							tokens = next_const_token (tokens, pos);
+							if (tokens[-1] == Token_identifier) {
+								length += snprintf (string + length, sizeof string - length, "_%s", tokens);
+							}
+							is_active = !find_macro (bcpp->macros, string);
+							if (is_active) {
+								struct position	cinner = { .filename = "<internal>", .line = 1, .column = 1, }, *inner = &cinner;
+								struct tokenizer	ctokenizer = {0}, *tokenizer = &ctokenizer;
+								char	*begin = tokenizer->current;
+
+								ifs[ifs_level].is_already_selected = 1;
+								success = push_token (tokenizer, 0, Token (identifier), string, length);
+								success = success && push_newline_token (tokenizer, 0);
+								success = success && end_tokenizer (tokenizer, 0);
+								begin = get_next_from_tokenizer (tokenizer, begin);
+								success = success && define_macro (bcpp, (const char **) &begin, inner);
+								free_tokenizer (tokenizer);
+							}
+						}
+					} else {
+						System_Error_Message (pos, "nested ifs limit is reached");
+						success = 0;
+					}
+				} else if (0 == strcmp (tokens, "header_end")) {
+					if (ifs_level >= 0 && ifs[ifs_level].type == If_Type_header) {
+						is_active = ifs[ifs_level].prev_active;
+						is_bypass = ifs[ifs_level].prev_bypass;
+						ifs_level -= 1;
+					} else {
+						Error_Message (pos, "'header_end' directive without 'header_begin'");
+						success = 0;
+					}
+				} else if (0 == strcmp (tokens, "implementation_begin")) {
+					if (ifs_level + 1 < (int) Array_Count (ifs)) {
+						ifs_level += 1;
+						memset (ifs + ifs_level, 0, sizeof ifs[0]);
+						ifs[ifs_level].prev_active = is_active;
+						ifs[ifs_level].type = If_Type_implementation;
+						if (is_active) {
+							char	string[256];
+							int		length;
+							const char	*filename;
+							char	text[1024];
+							struct tokenizer	ctokenizer = {0}, *tokenizer = &ctokenizer;
+							const char	*iftokens;
+
+							filename = strrchr (pos->filename, '/');
+							filename = filename ? filename : pos->filename;
+							length = snprintf (string, sizeof string, "_Impl!_%s", filename);
+							tokens = next_const_token (tokens, pos);
+							if (tokens[-1] == Token_identifier) {
+								length += snprintf (string + length, sizeof string - length, "_%s", tokens);
+							}
+							snprintf (text, sizeof text, "defined x || defined Implement_All\n");
+							iftokens = tokenize_with (tokenizer, text, (int []) { 0 }, 0, "<internal>");
+							if (iftokens) {
+								const char	*token = iftokens;
+								char		*begin = tokenizer->current;
+
+								while (success && token[-1]) {
+									if (token[-1] == Token (identifier) && 0 == strcmp (token, "x")) {
+										success = push_token (tokenizer, 0, Token (identifier), string, length);
+									} else {
+										success = copy_token (tokenizer, token);
+									}
+									token = next_const_token (token, 0);
+								}
+								success = success && end_tokenizer (tokenizer, 0);
+								if (success) {
+									isize	ret;
+									struct position	cinner = { .filename = "<internal>", .line = 1, .column = 1, }, *inner = &cinner;
+
+									begin = get_next_from_tokenizer (tokenizer, begin);
+									success = expand_and_evaluate_expression (bcpp, begin, &ret, inner);
+									is_active = !!ret;
+									if (is_active) {
+										ifs[ifs_level].is_already_selected = 1;
+										if (!find_macro (bcpp->macros, string)) {
+											struct position	cinner = { .filename = "<internal>", .line = 1, .column = 1, }, *inner = &cinner;
+
+											begin = tokenizer->current;
+											success = push_token (tokenizer, 0, Token (identifier), string, length);
+											success = success && push_newline_token (tokenizer, 0);
+											success = success && end_tokenizer (tokenizer, 0);
+											begin = get_next_from_tokenizer (tokenizer, begin);
+											success = success && define_macro (bcpp, (const char **) &begin, inner);
+										}
+									}
+								} else {
+									System_Error_Message (pos, "cannot tokenize implementation_begin condition");
+									success = 0;
+								}
+							} else {
+								System_Error_Message (pos, "cannot tokenize implementation_begin condition");
+								success = 0;
+							}
+							free_tokenizer (tokenizer);
+						}
+					} else {
+						System_Error_Message (pos, "nested ifs limit is reached");
+						success = 0;
+					}
+				} else if (0 == strcmp (tokens, "implementation_end")) {
 				} else {
 					if (is_active) {
 						Error_Message (pos, "invalid preprocessing directive '%s'", tokens);

@@ -212,6 +212,8 @@ Make_Enum_Generic (List, enumerator, (name) name, (name, value) name = value)
 
 #endif
 
+#if 0
+
 #define Make_String1(!a, !b) a ## b
 #define Make_String(!a, !b) Make_String1(a, b)
 
@@ -222,12 +224,10 @@ Make_Enum_Generic (List, enumerator, (name) name, (name, value) name = value)
 
 Hello(A, B)
 
+#endif
 
-
-
-
-
-
-
-
+#include "test2.c"
+// #define Implement_All
+#implement "test2.c"
+#implement second "test2.c"
 

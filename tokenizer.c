@@ -420,6 +420,7 @@ struct token_state {
 	int			tabsize;
 	int			check_include;
 	int			its_include;
+	int			its_implement;
 	int			*nl_array;
 	const char	*filename;
 };
@@ -467,9 +468,17 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		state->column += content - start;
 		push_token (tokenizer, state->offset, Token (identifier), start, content - start);
 		state->offset = 0;
-		state->its_include = 0;
-		if (state->check_include && (0 == strncmp (start, "include", content - start) || 0 == strncmp (start, "import", content - start))) {
-			state->its_include = 1;
+		if (state->its_include && state->its_implement) {
+			state->its_implement = 0;
+		} else if (state->check_include) {
+			state->its_include = 0;
+			state->its_implement = 0;
+			if (0 == strncmp (start, "include", content - start) || 0 == strncmp (start, "import", content - start)) {
+				state->its_include = 1;
+			} else if (0 == strncmp (start, "implement", content - start)) {
+				state->its_include = 1;
+				state->its_implement = 1;
+			}
 		}
 		state->check_include = 0;
 	} else if (isdigit (*content) || (*content == '.' && isdigit (content[1]))) {
@@ -482,7 +491,9 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		push_token (tokenizer, state->offset, Token (preprocessing_number), start, content - start);
 		state->offset = 0;
 		state->column += content - start;
-		state->check_include = 0; state->its_include = 0;
+		state->check_include = 0;
+		state->its_include = 0;
+		state->its_implement = 0;
 	} else if (*content == '"' || *content == '\'' || (state->its_include && *content == '<')) {
 		char	buffer_memory[256], *buffer = buffer_memory;
 		char	end_symbol = (*content == '<' ? '>' : *content);
@@ -529,7 +540,9 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		}
 		state->column += (content - start) + 1;
 		state->offset = 0;
-		state->check_include = 0; state->its_include = 0;
+		state->check_include = 0;
+		state->its_include = 0;
+		state->its_implement = 0;
 	} else {
 		static const char	*const strings[] = {
 			"++", "+=", "--", "-=", "->", "...", "!=", "*=", "&&", "&=", "/=", "%=", "<=", "<<=", "<<", ">=", ">>=", ">>", "^=", "|=", "||", "==", "##",
@@ -548,7 +561,9 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 			}
 			string += 1;
 		}
-		state->check_include = 0; state->its_include = 0;
+		state->check_include = 0;
+		state->its_include = 0;
+		state->its_implement = 0;
 		if (length == 1 && *content == '#' && ((tokenizer->current && tokenizer->current[-1] == Token (newline)) || !tokenizer->current)) {
 			state->check_include = 1;
 		}
