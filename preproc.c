@@ -2082,6 +2082,13 @@ int		evaluate_stringify_directive (struct bcpp *bcpp, struct tokenizer *tokenize
 	return (success);
 }
 
+int		make_special_macro_name (char *out, usize out_size, const char *prefix, const char *infix, const char *suffix) {
+	int length;
+
+	length = snprintf (out, out_size, "_%s!_%s_%s", prefix, infix, suffix ? suffix : "");
+	return (length);
+}
+
 int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const char *tokens, struct position *pos, int is_top_level) {
 	const char			*next = next_const_token (tokens, 0);
 	int					success = 1;
@@ -2141,10 +2148,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 							} else {
 								filename = strrchr (tokens, '/');
 								filename = filename ? filename : tokens;
-								length = snprintf (string, sizeof string, "_Impl!_%s", filename);
-								if (suffix) {
-									length += snprintf (string + length, sizeof string - length, "_%s", suffix);
-								}
+								length = make_special_macro_name (string, sizeof string, "Impl", filename, suffix);
 								Debug ("implement name: %s", string);
 								if (find_macro (bcpp->macros, string)) {
 									skip_include = 1;
@@ -2417,11 +2421,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 
 							filename = strrchr (pos->filename, '/');
 							filename = filename ? filename : pos->filename;
-							length = snprintf (string, sizeof string, "_Header!_%s", filename);
-							tokens = next_const_token (tokens, pos);
-							if (tokens[-1] == Token_identifier) {
-								length += snprintf (string + length, sizeof string - length, "_%s", tokens);
-							}
+							length = make_special_macro_name (string, sizeof string, "Header", filename, tokens[-1] == Token_identifier ? tokens : 0);
 							is_active = !find_macro (bcpp->macros, string);
 							if (is_active) {
 								struct position	cinner = { .filename = "<internal>", .line = 1, .column = 1, }, *inner = &cinner;
@@ -2458,7 +2458,9 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 						ifs[ifs_level].type = If_Type_implementation;
 						if (is_active) {
 							char	string[256];
+							char	string2[256];
 							int		length;
+							int		length2;
 							const char	*filename;
 							char	text[1024];
 							struct tokenizer	ctokenizer = {0}, *tokenizer = &ctokenizer;
@@ -2466,12 +2468,12 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 
 							filename = strrchr (pos->filename, '/');
 							filename = filename ? filename : pos->filename;
-							length = snprintf (string, sizeof string, "_Impl!_%s", filename);
 							tokens = next_const_token (tokens, pos);
-							if (tokens[-1] == Token_identifier) {
-								length += snprintf (string + length, sizeof string - length, "_%s", tokens);
-							}
-							snprintf (text, sizeof text, "defined x || defined Implement_All\n");
+							length = make_special_macro_name (string, sizeof string, "Impl", filename, tokens[-1] == Token_identifier ? tokens : 0);
+							Debug ("Impl: %s", string);
+							length2 = make_special_macro_name (string2, sizeof string2, "Impled", filename, tokens[-1] == Token_identifier ? tokens : 0);
+							Debug ("Impled: %s", string);
+							snprintf (text, sizeof text, "(defined x || defined Implement_All) && !defined y\n");
 							iftokens = tokenize_with (tokenizer, text, (int []) { 0 }, 0, "<internal>");
 							if (iftokens) {
 								const char	*token = iftokens;
@@ -2480,6 +2482,8 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 								while (success && token[-1]) {
 									if (token[-1] == Token (identifier) && 0 == strcmp (token, "x")) {
 										success = push_token (tokenizer, 0, Token (identifier), string, length);
+									} else if (token[-1] == Token (identifier) && 0 == strcmp (token, "y")) {
+										success = push_token (tokenizer, 0, Token (identifier), string2, length2);
 									} else {
 										success = copy_token (tokenizer, token);
 									}
@@ -2505,6 +2509,16 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 											begin = get_next_from_tokenizer (tokenizer, begin);
 											success = success && define_macro (bcpp, (const char **) &begin, inner);
 										}
+										if (!find_macro (bcpp->macros, string2)) {
+											struct position	cinner = { .filename = "<internal>", .line = 1, .column = 1, }, *inner = &cinner;
+
+											begin = tokenizer->current;
+											success = push_token (tokenizer, 0, Token (identifier), string2, length2);
+											success = success && push_newline_token (tokenizer, 0);
+											success = success && end_tokenizer (tokenizer, 0);
+											begin = get_next_from_tokenizer (tokenizer, begin);
+											success = success && define_macro (bcpp, (const char **) &begin, inner);
+										}
 									}
 								} else {
 									System_Error_Message (pos, "cannot tokenize implementation_begin condition");
@@ -2521,6 +2535,14 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 						success = 0;
 					}
 				} else if (0 == strcmp (tokens, "implementation_end")) {
+					if (ifs_level >= 0 && ifs[ifs_level].type == If_Type_implementation) {
+						is_active = ifs[ifs_level].prev_active;
+						is_bypass = ifs[ifs_level].prev_bypass;
+						ifs_level -= 1;
+					} else {
+						Error_Message (pos, "'implementation_end' directive without 'implementation_begin'");
+						success = 0;
+					}
 				} else {
 					if (is_active) {
 						Error_Message (pos, "invalid preprocessing directive '%s'", tokens);

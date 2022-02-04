@@ -12,3 +12,4 @@ IMPL
 IMPL2
 #implementation_end
 
+END
