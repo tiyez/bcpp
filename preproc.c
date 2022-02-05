@@ -784,7 +784,7 @@ int		evaluate_macro_call (struct bcpp *bcpp, struct tokenizer *tokenizer, struct
 	success = 1;
 	is_part_of_va = ((desc->flags & Macro_Flag_variadic) && arg_index + 1 == args->size);
 	tokens = next_const_token (tokens, pos);
-	if (tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "!") && 0 == get_token_offset (tokens)) {
+	if (tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "@") && 0 == get_token_offset (tokens)) {
 		args->is_no_body_eval = 1;
 		original = tokens;
 		tokens = next_const_token (tokens, pos);
@@ -1264,22 +1264,29 @@ int		stringify_tokens (struct tokenizer *tokenizer, const char *tokens, int coun
 			count -= 1;
 		}
 		if (tokens[-1] == Token_newline) {
-			if (pusher.size > 0) {
-				success = push_char(&pusher, '\n');
+			int		spaces = tokens[0];
+
+			do {
+				success = push_char (&pusher, '\n');
 				if (success) {
 					success = push_string_token (tokenizer, offset, pusher.buffer, pusher.size, pusher.push_at_existing);
 					pusher.size = 0;
 					pusher.push_at_existing = 1;
 					is_nl = 1;
 				}
-			}
-			if (success) {
-				success = push_newline_token (tokenizer, 0);
 				if (success) {
-					tokens = next_const_token (tokens, 0);
-					offset = 0;
-					pusher.push_at_existing = 0;
+					success = push_newline_token (tokenizer, 0);
+					if (success) {
+						offset = 0;
+						pusher.push_at_existing = 0;
+					}
 				}
+				spaces -= 1;
+			} while (success && spaces > 0);
+			if (success) {
+				tokens = next_const_token (tokens, 0);
+				offset = 0;
+				pusher.push_at_existing = 0;
 			}
 		}
 	}
@@ -2089,9 +2096,19 @@ int		make_special_macro_name (char *out, usize out_size, const char *prefix, con
 	return (length);
 }
 
+const char	*get_basename (const char *filename) {
+	const char	*basename;
+
+	basename = strrchr (filename, '/');
+	basename = basename ? basename : filename;
+	return (basename);
+}
+
 int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const char *tokens, struct position *pos, int is_top_level) {
 	const char			*next = next_const_token (tokens, 0);
 	int					success = 1;
+	struct tokenizer	cshader_tokenizer = {0}, *shader_tokenizer_prev = 0;
+	const char			*shader_type, *shader_name;
 	int		is_active = 1;
 	int		ifs_level = -1;
 	int		is_bypass = 0;
@@ -2099,6 +2116,7 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 		If_Type_regular = 0,
 		If_Type_header,
 		If_Type_implementation,
+		If_Type_shader,
 	};
 	struct {
 		int		is_already_selected;
@@ -2542,6 +2560,148 @@ int		evaluate_directives (struct bcpp *bcpp, struct tokenizer *tokenizer, const 
 					} else {
 						Error_Message (pos, "'implementation_end' directive without 'implementation_begin'");
 						success = 0;
+					}
+				} else if (0 == strcmp (tokens, "shader_begin")) {
+					if (ifs_level + 1 < (int) Array_Count (ifs)) {
+						ifs_level += 1;
+						memset (ifs + ifs_level, 0, sizeof ifs[0]);
+						ifs[ifs_level].prev_active = is_active;
+						ifs[ifs_level].type = If_Type_shader;
+						if (is_active) {
+							char	string[256];
+							int		length;
+							const char	*filename;
+
+							tokens = next_const_token (tokens, pos);
+							if (tokens[-1] == Token (identifier)) {
+								shader_type = tokens;
+								tokens = next_const_token (tokens, pos);
+								if (tokens[-1] == Token (identifier)) {
+									shader_name = tokens;
+								} else {
+									Error_Message (pos, "invalid shader name");
+									success = 0;
+								}
+							} else {
+								Error_Message (pos, "invalid shader type");
+								success = 0;
+							}
+							if (success) {
+								length = make_special_macro_name (string, sizeof string, "Shader", get_basename (pos->filename), shader_type);
+								length += snprintf (string + length, sizeof string - length, "_%s", shader_name);
+								is_active = !find_macro (bcpp->macros, string);
+								if (is_active) {
+									if (!shader_tokenizer_prev) {
+										shader_tokenizer_prev = tokenizer;
+										tokenizer = &cshader_tokenizer;
+									} else {
+										Error_Message (pos, "'shader_begin' inside shader block");
+										success = 0;
+									}
+								}
+								if (success && is_active) {
+									struct position	cinner = { .filename = "<internal>", .line = 1, .column = 1, }, *inner = &cinner;
+									struct tokenizer	ctokenizer = {0}, *tokenizer = &ctokenizer;
+									char	*begin = tokenizer->current;
+
+									ifs[ifs_level].is_already_selected = 1;
+									success = push_token (tokenizer, 0, Token (identifier), string, length);
+									success = success && push_newline_token (tokenizer, 0);
+									success = success && end_tokenizer (tokenizer, 0);
+									begin = get_next_from_tokenizer (tokenizer, begin);
+									success = success && define_macro (bcpp, (const char **) &begin, inner);
+									free_tokenizer (tokenizer);
+								}
+							}
+						}
+					} else {
+						System_Error_Message (pos, "nested ifs limit is reached");
+						success = 0;
+					}
+				} else if (0 == strcmp (tokens, "shader_end")) {
+					if (ifs_level >= 0 && ifs[ifs_level].type == If_Type_shader) {
+						is_active = ifs[ifs_level].prev_active;
+						is_bypass = ifs[ifs_level].prev_bypass;
+						ifs_level -= 1;
+						if (shader_tokenizer_prev) {
+							char	shader_var[128];
+							const char	*shader_tokens;
+
+							tokenizer = shader_tokenizer_prev;
+							shader_tokenizer_prev = 0;
+							snprintf (shader_var, sizeof shader_var, "\nconst char *const g_%s_shader_%s = ", shader_type, shader_name);
+							success = end_tokenizer (&cshader_tokenizer, 0);
+							success = success && !!tokenize_to (tokenizer, shader_var, shader_name);
+							shader_tokens = get_first_token (&cshader_tokenizer);
+							if (shader_tokens[-1] == Token (newline)) {
+								if (shader_tokens[0] <= 1) {
+									shader_tokens = next_const_token (shader_tokens, 0);
+								} else {
+									((char *) shader_tokens)[0] -= 1;
+								}
+							}
+							success = success && stringify_tokens (tokenizer, shader_tokens, 0, 1, 1, 0);
+							success = success && !!tokenize_to (tokenizer, ";\n", shader_name);
+							success = success && push_line_directive (tokenizer, pos->filename, pos->line);
+							free_tokenizer (&cshader_tokenizer);
+						} else {
+							System_Error_Message (pos, "cannot restore tokenizer context");
+							success = 0;
+						}
+					} else {
+						Error_Message (pos, "'shader_end' directive without 'shader_begin'");
+						success = 0;
+					}
+				} else if (0 == strcmp (tokens, "version") && shader_tokenizer_prev) {
+					success = !!tokenize_to (tokenizer, "#", pos->filename);
+					while (success && tokens[-1] && tokens[-1] != Token (newline)) {
+						success = copy_token (tokenizer, tokens);
+						tokens = next_const_token (tokens, pos);
+					}
+				} else if (0 == strcmp (tokens, "shader_program")) {
+					char	string[256];
+					int		length;
+					const char	*program_name, *vertex_name, *fragment_name;
+
+					tokens = next_const_token (tokens, pos);
+					if (tokens[-1] == Token (identifier)) {
+						program_name = tokens;
+						tokens = next_const_token (tokens, pos);
+						if (tokens[-1] == Token (identifier)) {
+							vertex_name = tokens;
+							length = make_special_macro_name (string, sizeof string, "Shader", get_basename (pos->filename), "vertex");
+							length += snprintf (string + length, sizeof string - length, "_%s", vertex_name);
+							if (find_macro (bcpp->macros, string)) {
+								tokens = next_const_token (tokens, pos);
+								if (tokens [-1] == Token (identifier)) {
+									fragment_name = tokens;
+									length = make_special_macro_name (string, sizeof string, "Shader", get_basename (pos->filename), "fragment");
+									length += snprintf (string + length, sizeof string - length, "_%s", fragment_name);
+									if (find_macro (bcpp->macros, string)) {
+										success = 1;
+									} else {
+										Error_Message (pos, "fragment shader '%s' is not defined", tokens);
+										success = 0;
+									}
+								} else {
+									Error_Message (pos, "invalid fragment shader name");
+									success = 0;
+								}
+							} else {
+								Error_Message (pos, "vertex shader '%s' is not defined", tokens);
+								success = 0;
+							}
+						} else {
+							Error_Message (pos, "invalid vertex shader name");
+							success = 0;
+						}
+					} else {
+						Error_Message (pos, "invalid shader program name");
+						success = 0;
+					}
+					if (success) {
+						snprintf (string, sizeof string, "const char *const g_shader_%s[] = { g_vertex_shader_%s, g_fragment_shader_%s, 0, };", program_name, vertex_name, fragment_name);
+						success = !!tokenize_to (tokenizer, string, pos->filename);
 					}
 				} else {
 					if (is_active) {

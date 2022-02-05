@@ -226,8 +226,30 @@ Hello(A, B)
 
 #endif
 
-#include "test2.c"
-// #define Implement_All
-#implement "test2.c"
-#implement second "test2.c"
+// #include "test2.c"
+// // #define Implement_All
+// #implement "test2.c"
+// #implement second "test2.c"
 
+#shader_begin vertex hello
+#version 330 core
+
+int main () {
+	gl_Position = vec4 (1, 1, 1, 1);
+}
+
+#shader_end
+
+#shader_begin fragment world
+#version 330 core
+
+in vec4 color;
+out vec4 output;
+
+int main () {
+	output = color;
+}
+
+#shader_end
+
+#shader_program std hello world

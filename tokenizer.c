@@ -692,6 +692,23 @@ char	*tokenize (const char *content, int *nl_array, int ensure_nl_at_end, const 
 	return (tokenize_with (&tokenizer, content, nl_array, ensure_nl_at_end, filename));
 }
 
+char	*tokenize_to (struct tokenizer *tokenizer, const char *content, const char *filename) {
+	int					success = 1;
+	char				*begin = tokenizer->current;
+	struct token_state	state = {
+		.tabsize = 1,
+		.line = 1,
+		.column = 1,
+		.nl_array = (int []) { 0 },
+		.filename = filename,
+	};
+
+	while (success && *content) {
+		success = make_token (tokenizer, &state, &content);
+	}
+	return (success ? get_next_from_tokenizer (tokenizer, begin) : 0);
+}
+
 char	*tokenize_with (struct tokenizer *tokenizer, const char *content, int *nl_array, int ensure_nl_at_end, const char *filename) {
 	int					success = 1;
 	int					was_allocated = !!tokenizer->data;
@@ -704,7 +721,7 @@ char	*tokenize_with (struct tokenizer *tokenizer, const char *content, int *nl_a
 		.filename = filename,
 	};
 
-	while (*content && success) {
+	while (success && *content) {
 		success = make_token (tokenizer, &state, &content);
 	}
 	if (success) {
@@ -722,7 +739,7 @@ char	*tokenize_with (struct tokenizer *tokenizer, const char *content, int *nl_a
 			free_tokenizer (tokenizer);
 		}
 	}
-	return (get_next_from_tokenizer (tokenizer, begin));
+	return (success ? get_next_from_tokenizer (tokenizer, begin) : 0);
 }
 
 int		unescape_string (const char **ptoken, char *out, usize cap, usize *size) {
@@ -969,6 +986,10 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 
 void	print_tokens (const char *tokens, int with_lines, const char *line_prefix, FILE *file) {
 	print_tokens_until (tokens, with_lines, line_prefix, Token (eof), file);
+}
+
+void	print_tokens_to_string (const char *tokens, char **pstring) {
+
 }
 
 #ifndef Without_Tests
