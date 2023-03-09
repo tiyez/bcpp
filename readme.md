@@ -2,7 +2,9 @@
 # BCPP
 
 My version of C preprocessor with features that I would like to have in standard preprocessor.
+
 It's a rough sketch of my ideas, but at least it capable to evaluate standard C headers on Windows and MacOS.
+
 Additional features:
 - multiline macros
 - calleach directive that calls anonymous macro for each line of provided multiline macro
